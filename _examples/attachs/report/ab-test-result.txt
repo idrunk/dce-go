@@ -1,0 +1,278 @@
+D:\Program\httpd-2.4.43-win64-VS16\Apache24\bin>ab -n 10000 -c 16 http://127.0.0.1:2046/hello
+This is ApacheBench, Version 2.3 <$Revision: 1874286 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Completed 1000 requests
+Completed 2000 requests
+Completed 3000 requests
+Completed 4000 requests
+Completed 5000 requests
+Completed 6000 requests
+Completed 7000 requests
+Completed 8000 requests
+Completed 9000 requests
+Completed 10000 requests
+Finished 10000 requests
+
+
+Server Software:
+Server Hostname:        127.0.0.1
+Server Port:            2046
+
+Document Path:          /hello
+Document Length:        15 bytes
+
+Concurrency Level:      16
+Time taken for tests:   3.486 seconds
+Complete requests:      10000
+Failed requests:        0
+Total transferred:      1320000 bytes
+HTML transferred:       150000 bytes
+Requests per second:    2868.78 [#/sec] (mean)
+Time per request:       5.577 [ms] (mean)
+Time per request:       0.349 [ms] (mean, across all concurrent requests)
+Transfer rate:          369.80 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.3      0       1
+Processing:     1    5   0.3      5      14
+Waiting:        0    3   1.5      3      10
+Total:          1    5   0.3      6      14
+ERROR: The median and mean for the total time are more than twice the standard
+       deviation apart. These results are NOT reliable.
+
+Percentage of the requests served within a certain time (ms)
+  50%      6
+  66%      6
+  75%      6
+  80%      6
+  90%      6
+  95%      6
+  98%      6
+  99%      6
+ 100%     14 (longest request)
+
+D:\Program\httpd-2.4.43-win64-VS16\Apache24\bin>ab -n 10000 -c 16 http://127.0.0.1:8080/albums
+This is ApacheBench, Version 2.3 <$Revision: 1874286 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Completed 1000 requests
+Completed 2000 requests
+Completed 3000 requests
+Completed 4000 requests
+Completed 5000 requests
+Completed 6000 requests
+Completed 7000 requests
+Completed 8000 requests
+Completed 9000 requests
+Completed 10000 requests
+Finished 10000 requests
+
+
+Server Software:
+Server Hostname:        127.0.0.1
+Server Port:            8080
+
+Document Path:          /albums
+Document Length:        382 bytes
+
+Concurrency Level:      16
+Time taken for tests:   3.572 seconds
+Complete requests:      10000
+Failed requests:        0
+Total transferred:      5060000 bytes
+HTML transferred:       3820000 bytes
+Requests per second:    2799.67 [#/sec] (mean)
+Time per request:       5.715 [ms] (mean)
+Time per request:       0.357 [ms] (mean, across all concurrent requests)
+Transfer rate:          1383.43 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.3      0       1
+Processing:     1    5   0.4      5      21
+Waiting:        0    3   1.5      3      16
+Total:          1    6   0.4      6      22
+
+Percentage of the requests served within a certain time (ms)
+  50%      6
+  66%      6
+  75%      6
+  80%      6
+  90%      6
+  95%      6
+  98%      6
+  99%      7
+ 100%     22 (longest request)
+
+D:\Program\httpd-2.4.43-win64-VS16\Apache24\bin>ab -n 10000 -c 16 http://127.0.0.1:2046/hello
+This is ApacheBench, Version 2.3 <$Revision: 1874286 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Completed 1000 requests
+Completed 2000 requests
+Completed 3000 requests
+Completed 4000 requests
+Completed 5000 requests
+Completed 6000 requests
+Completed 7000 requests
+Completed 8000 requests
+Completed 9000 requests
+Completed 10000 requests
+Finished 10000 requests
+
+
+Server Software:
+Server Hostname:        127.0.0.1
+Server Port:            2046
+
+Document Path:          /hello
+Document Length:        15 bytes
+
+Concurrency Level:      16
+Time taken for tests:   3.442 seconds
+Complete requests:      10000
+Failed requests:        0
+Total transferred:      1320000 bytes
+HTML transferred:       150000 bytes
+Requests per second:    2905.50 [#/sec] (mean)
+Time per request:       5.507 [ms] (mean)
+Time per request:       0.344 [ms] (mean, across all concurrent requests)
+Transfer rate:          374.54 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.3      0       1
+Processing:     1    5   0.3      5      16
+Waiting:        1    3   1.4      3      11
+Total:          1    5   0.3      5      16
+
+Percentage of the requests served within a certain time (ms)
+  50%      5
+  66%      6
+  75%      6
+  80%      6
+  90%      6
+  95%      6
+  98%      6
+  99%      6
+ 100%     16 (longest request)
+
+D:\Program\httpd-2.4.43-win64-VS16\Apache24\bin>ab -n 10000 -c 16 http://127.0.0.1:2046/session/dce
+This is ApacheBench, Version 2.3 <$Revision: 1874286 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Completed 1000 requests
+Completed 2000 requests
+Completed 3000 requests
+Completed 4000 requests
+Completed 5000 requests
+Completed 6000 requests
+Completed 7000 requests
+Completed 8000 requests
+Completed 9000 requests
+Completed 10000 requests
+Finished 10000 requests
+
+
+Server Software:
+Server Hostname:        127.0.0.1
+Server Port:            2046
+
+Document Path:          /session/dce
+Document Length:        30 bytes
+
+Concurrency Level:      16
+Time taken for tests:   3.404 seconds
+Complete requests:      10000
+Failed requests:        0
+Total transferred:      1470000 bytes
+HTML transferred:       300000 bytes
+Requests per second:    2937.35 [#/sec] (mean)
+Time per request:       5.447 [ms] (mean)
+Time per request:       0.340 [ms] (mean, across all concurrent requests)
+Transfer rate:          421.67 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.3      0       1
+Processing:     1    5   0.4      5      11
+Waiting:        1    3   1.3      3       9
+Total:          1    5   0.4      5      11
+
+Percentage of the requests served within a certain time (ms)
+  50%      5
+  66%      5
+  75%      6
+  80%      6
+  90%      6
+  95%      6
+  98%      6
+  99%      7
+ 100%     11 (longest request)
+
+D:\Program\httpd-2.4.43-win64-VS16\Apache24\bin>ab -n 10000 -c 16 http://127.0.0.1:8080/album/2
+This is ApacheBench, Version 2.3 <$Revision: 1874286 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking 127.0.0.1 (be patient)
+Completed 1000 requests
+Completed 2000 requests
+Completed 3000 requests
+Completed 4000 requests
+Completed 5000 requests
+Completed 6000 requests
+Completed 7000 requests
+Completed 8000 requests
+Completed 9000 requests
+Completed 10000 requests
+Finished 10000 requests
+
+
+Server Software:
+Server Hostname:        127.0.0.1
+Server Port:            8080
+
+Document Path:          /album/2
+Document Length:        90 bytes
+
+Concurrency Level:      16
+Time taken for tests:   3.506 seconds
+Complete requests:      10000
+Failed requests:        0
+Total transferred:      2130000 bytes
+HTML transferred:       900000 bytes
+Requests per second:    2851.91 [#/sec] (mean)
+Time per request:       5.610 [ms] (mean)
+Time per request:       0.351 [ms] (mean, across all concurrent requests)
+Transfer rate:          593.22 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    0   0.3      0       1
+Processing:     1    5   0.3      5       8
+Waiting:        1    4   1.3      4       8
+Total:          1    6   0.3      5       8
+ERROR: The median and mean for the total time are more than twice the standard
+       deviation apart. These results are NOT reliable.
+
+Percentage of the requests served within a certain time (ms)
+  50%      5
+  66%      6
+  75%      6
+  80%      6
+  90%      6
+  95%      6
+  98%      6
+  99%      6
+ 100%      8 (longest request)

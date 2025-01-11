@@ -1,0 +1,15 @@
+go 1.23.3
+
+use (
+	./converter
+	./_examples
+	./_examples/apis
+	./proto
+	./proto/flex
+	./proto/json
+	./proto/pb
+	./router
+	./session
+	./session/redises
+	./util
+)

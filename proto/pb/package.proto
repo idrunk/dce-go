@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+option go_package = "./pb";
+
+message Package {
+    optional uint32 id = 1;
+    optional string path = 2;
+    optional string sid = 3;
+    optional int32 code = 4;
+    optional string msg = 5;
+    optional bytes body = 6;
+}

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Websocket test</title>
+    <style>
+        body{width: 800px; margin: 50px auto}
+        .chat-box {display: flex; border: 1px solid #aaa; border-radius: 6px;}
+        .cb-left {flex: auto; border-right: 1px solid #aaa}
+        .chat-board {height: 500px; overflow-y: auto; border-bottom: 1px solid #aaa;}
+        .msg-bubble {padding: 10px;}
+        .msg-bubble.self {text-align: right}
+        .msg-head {font-size: 14px; color: #777;}
+        .msg-head .time-wrap {font-size: 12px; margin-left: 10px;}
+        .msg-bubble.self .time-wrap {margin: 0 10px 0 0;}
+        .msg-bubble p {margin: 0; padding: 10px 5px;}
+        .editor-wrap {display: flex;}
+        .editor-wrap #editor {flex: auto; border: 0; border-right: 1px solid #aaa; border-bottom-left-radius: 8px;}
+        .editor-wrap button {width: 80px; height: 48px; border: 0;}
+        .group-members {width: 160px; list-style: none; margin: 0; padding: 0;}
+        .group-members li {margin: 10px;}
+    </style>
+</head>
+<body>
+<h1>[<span class="online-state"></span>] <span class="session-user"></span>'s group chat</h1>
+<div class="chat-box">
+    <div class="cb-left">
+        <div class="chat-board"></div>
+        <form class="editor-wrap">
+            <textarea id="editor"></textarea>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+    <ul class="group-members"></ul>
+</div>
+<script>
+    class FlexWebsocketClient {
+        ws
+        sidHandler
+        requestMapping = {}
+        listenMapping = {}
+
+        constructor(address, sidHandler, onopen, onclose, onmessage) {
+            const self = this
+            this.sidHandler = sidHandler
+            this.ws = new WebSocket(address)
+            this.ws.binaryType = "arraybuffer"
+            this.ws.onopen = onopen
+            this.ws.onclose = onclose
+            this.ws.onmessage = function (ev) {
+                let fp
+                try {
+                    fp = FlexPackage.deserialize(Array.from(new Uint8Array(ev.data)))
+                } catch (e) {
+                    onmessage && onmessage(ev.data) || console.error(e)
+                    return
+                }
+                self.sidHandler(fp)
+                if (fp.code || fp.message) {
+                    console.warn(`Code: ${fp.code}, Message: ${fp.message}`)
+                }
+                if (fp.id in self.requestMapping) {
+                    self.requestMapping[fp.id](fp)
+                } else if (fp.path in self.listenMapping) {
+                    self.listenMapping[fp.path](fp)
+                } else if (onmessage) {
+                    onmessage(fp, true)
+                }
+            }
+        }
+
+        bind(path, callback) {
+            this.listenMapping[path] = callback
+        }
+
+        sendText(content) {
+            this.ws.send(content)
+        }
+
+        send(path, content, id) {
+            const pkg = FlexPackage.new(path, content, this.sidHandler(), id)
+            this.sendText(pkg.serialize())
+            return pkg.id
+        }
+
+        async request(path, content) {
+            const reqId = this.send(path, content, -1)
+            const self = this
+            return new Promise(resolve => {
+                self.requestMapping[reqId] = function(fp) {
+                    resolve(fp.body)
+                    delete self.requestMapping[fp.id]
+                }
+            })
+        }
+    }
+
+    class FlexPackage {
+        static #flagId = 128
+        static #flagPath = 64
+        static #flagSid = 32
+        static #flagCode = 16
+        static #flagMsg = 8
+        static #flagBody = 4
+        static #flagNumPath = 2
+
+        static #reqId = 0
+
+        id
+        path
+        numPath
+        sid
+        code
+        message
+        body
+
+        static new(path, body, sid, id, numPath) {
+            if (id === -1) {
+                id = ++FlexPackage.#reqId
+            }
+            const fp = new FlexPackage
+            fp.id = id
+            fp.path = path
+            fp.sid = sid
+            fp.numPath = numPath
+            fp.body = body
+            return fp
+        }
+
+        serialize() {
+            const buffer = [0]
+            const lenSeqInfo = []
+            const textBuffer = []
+            let seq
+            if ((this.path || "").length > 0) {
+                buffer[0] |= FlexPackage.#flagPath
+                textBuffer.push(seq = new TextEncoder().encode(this.path))
+                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            }
+            if ((this.sid || "").length > 0) {
+                buffer[0] |= FlexPackage.#flagSid
+                textBuffer.push(seq = new TextEncoder().encode(this.sid))
+                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            }
+            if ((this.message || "").length > 0) {
+                buffer[0] |= FlexPackage.#flagMsg
+                textBuffer.push(seq = new TextEncoder().encode(this.message))
+                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            }
+            if ((this.body || "").length > 0) {
+                buffer[0] |= FlexPackage.#flagBody
+                textBuffer.push(seq = new TextEncoder().encode(this.body))
+                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            }
+            if (this.id > 0) {
+                buffer[0] |= FlexPackage.#flagId
+                lenSeqInfo.push(FlexNum.non0LenPackHead(this.id))
+            }
+            if (this.code) {
+                buffer[0] |= FlexPackage.#flagCode
+                lenSeqInfo.push(FlexNum.intPackHead(this.code))
+            }
+            if (this.numPath > 0) {
+                buffer[0] |= FlexPackage.#flagNumPath
+                lenSeqInfo.push(FlexNum.non0LenPackHead(this.numPath))
+            }
+            buffer.push(...Array(lenSeqInfo.length).fill(0))
+            for (let i=0; i<lenSeqInfo.length; i++) {
+                buffer[1+i] = lenSeqInfo[i][0]
+                buffer.push(...FlexNum.packBody(lenSeqInfo[i][3], lenSeqInfo[i][2], lenSeqInfo[i][1]))
+            }
+            for (let i=0; i<textBuffer.length; i++) {
+                buffer.push(...textBuffer[i])
+            }
+            return Uint8Array.from(buffer)
+        }
+
+        static deserialize(seq) {
+            const fp = new FlexPackage
+            const flag = seq.splice(0, 1)?.[0]
+            if (! flag) {
+                return fp
+            }
+            const onesCount = FlexNum.onesCount(flag)
+            const numHeadSeq = seq.splice(0, onesCount)
+            if (numHeadSeq.length < onesCount) {
+                return fp
+            }
+            const numInfoSeq = new Array(onesCount).fill(0)
+            for (let i=0; i<onesCount; i++) {
+                const tuple = FlexNum.parseHead(numHeadSeq[i], true)
+                const numBodySeq = tuple[1] > 0 ? seq.splice(0, tuple[1]) : []
+                if (numBodySeq.length < tuple[1]) {
+                    return fp
+                }
+                numInfoSeq[i] = [tuple, numBodySeq]
+            }
+            if ((flag & this.#flagPath) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+                const sq = seq.splice(0, len)
+                if (sq.length < len) {
+                    return fp
+                }
+                fp.path = new TextDecoder().decode(Uint8Array.from(sq))
+            }
+            if ((flag & this.#flagSid) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+                const sq = seq.splice(0, len)
+                if (sq.length < len) {
+                    return fp
+                }
+                fp.sid = new TextDecoder().decode(Uint8Array.from(sq))
+            }
+            if ((flag & this.#flagMsg) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+                const sq = seq.splice(0, len)
+                if (sq.length < len) {
+                    return fp
+                }
+                fp.message = new TextDecoder().decode(Uint8Array.from(sq))
+            }
+            if ((flag & this.#flagBody) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+                const sq = seq.splice(0, len)
+                if (sq.length < len) {
+                    return fp
+                }
+                fp.body = new TextDecoder().decode(Uint8Array.from(sq))
+            }
+            if ((flag & this.#flagId) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                fp.id = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+            }
+            if ((flag & this.#flagCode) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                fp.code = FlexNum.intParse([numInfo[0], ...numBodySeq], numInfo[2])
+            }
+            if ((flag & this.#flagNumPath) > 0) {
+                const [numInfo, numBodySeq] = numInfoSeq.shift()
+                fp.numPath = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
+            }
+            return fp
+        }
+    }
+
+    class FlexNum {
+        static uintSerialize(unsigned) {
+            return this.#serialize(...this.#uintPackHead(unsigned))
+        }
+
+        static intSerialize(integer) {
+            return this.#serialize(...this.intPackHead(integer))
+        }
+
+        static non0LenPackHead(unsigned) {
+            return this.#uintPackHead(unsigned - 1)
+        }
+
+        static #uintPackHead(unsigned) {
+            const usize = Math.abs(unsigned)
+            const bitsLen = this.bitsLen(usize)
+            const [head, bytesLen] = this.#packHead(usize, bitsLen)
+            return [head, bytesLen, bitsLen, usize]
+        }
+
+        static intPackHead(integer) {
+            let unsigned = 0
+            if (integer < 0) {
+                unsigned = Math.abs(integer)
+            }
+            let bitsLen = FlexNum.bitsLen(unsigned)
+            let [head, bytesLen] = FlexNum.#packHead(unsigned, bitsLen)
+            if (integer < 0) {
+                let negative = 1
+                if (bytesLen < 7) {
+                    negative = 1 << (6 - bytesLen)
+                }
+                head |= negative
+            }
+            return [head, bytesLen, bitsLen, unsigned]
+        }
+
+        static #packHead(unsigned, bitsLen) {
+            let bytesLen = Math.floor(bitsLen / 8)
+            let headMaskShift = 8 - bytesLen
+            let headBits = 0
+            if (bytesLen > 5) {
+                bytesLen = 8
+                headMaskShift = 2
+            } else if (bitsLen%8 > 7-bytesLen) {
+                bytesLen ++
+                headMaskShift --
+            } else {
+                headBits |= unsigned >> (bytesLen * 8)
+            }
+            return [255 << headMaskShift & 255 | headBits, bytesLen]
+        }
+
+        static #serialize(head, bytesLen, bitsLen, u64) {
+            let units = new Uint8Array(bytesLen + 1)
+            units[0] = head
+            units.set(this.packBody(u64, bitsLen, bytesLen), 1)
+            return units
+        }
+
+        static packBody(usize, bitsLen, bytesLen) {
+            let units = new Uint8Array(bytesLen)
+            for (let i=0; i<bytesLen && i*8 < bitsLen; i++) {
+                units[bytesLen-i-1] = usize >> (i * 8) & 255
+            }
+            return units
+        }
+
+        static uintDeserialize(seq) {
+            [seq[0]] = this.parseHead(seq[0], false)
+            return this.#parse(seq)
+        }
+
+        static intDeserialize(seq) {
+            const [headBits, _, negative] = this.parseHead(seq[0], true)
+            seq[0] = headBits
+            return this.intParse(seq, negative)
+        }
+
+        static parseHead(head, sign) {
+            let unsignedBits = 0
+            let bytesLen = 0
+            let negative = false
+            let originalBits = 0
+            for (let i = 0; i<8; i ++) {
+                if ((128 >> i & head) === 0) {
+                    if ((bytesLen = i) > 5) {
+                        bytesLen = 8
+                        originalBits = 1 & head
+                    } else {
+                        originalBits = 127 >> bytesLen & head
+                    }
+                    break
+                }
+            }
+            unsignedBits = originalBits
+            if (sign) {
+                if (bytesLen === 8) {
+                    negative = (1 & head) === 1
+                } else {
+                    let signShift = 0
+                    if ((negative = (64 >> bytesLen & head) > 0)) {
+                        signShift = 1
+                    }
+                    unsignedBits = 127 >> bytesLen >> signShift & head
+                }
+            }
+            return [unsignedBits, bytesLen, negative, originalBits]
+        }
+
+        static intParse(seq, negative) {
+            const u64 = this.#parse(seq)
+            if (negative) {
+                return -u64
+            }
+            return u64
+        }
+
+        static non0LenParse(seq) {
+            return this.#parse(seq) + 1
+        }
+
+        static #parse(seq) {
+            let u64 = 0
+            for (let i = 0; i < seq.length; i++) {
+                if (seq[i] > 0) {
+                    u64 |= seq[i] << ((seq.length -i - 1) * 8)
+                }
+            }
+            return u64
+        }
+
+        static bitsLen(num) {
+            let len = 0
+            do {
+                len++
+                num >>= 1
+            } while (num > 0)
+            return len
+        }
+
+        static onesCount(num) {
+            let count = 0
+            for (let i = this.bitsLen(num) - 1; i >=0; i --) {
+                if ((1 << i & num) > 0) {
+                    count ++
+                }
+            }
+            return count
+        }
+    }
+
+    const sessionUser = {}
+    const sessionUserElem = document.querySelector(".session-user")
+    const chatBoard = document.querySelector(".chat-board")
+    const editorWrap = document.querySelector(".editor-wrap")
+    const editor = document.getElementById("editor")
+    const onlineState = document.querySelector(".online-state")
+    const groupMembers = document.querySelector(".group-members")
+
+    function sidHandler(fp) {
+        if (fp) {
+            if (fp?.sid && fp.sid.length > 0) {
+                sessionStorage.setItem("session-id", fp.sid)
+            }
+        } else {
+            // return location.pathname.replace(/^\/+/, "").replace(/^([^/]+).*/, "$1")
+            return sessionStorage.getItem("session-id")
+        }
+    }
+
+    const SWC = new FlexWebsocketClient(
+        "{{.ServerAddr}}" + (sidHandler() ? "/"+sidHandler() : ""),
+        sidHandler,
+        () => onlineState.textContent = "Online",
+        () => onlineState.textContent = "Offline",
+    )
+
+    SWC.bind("sync-user-list", fp => {
+        groupMembers.innerHTML = ""
+        const resp = JSON.parse(fp.body)
+        if (resp.sessionUser) {
+            Object.assign(sessionUser, resp.sessionUser)
+            sessionUserElem.textContent = sessionUser.nick
+        }
+        for (const user of resp.userList) {
+            const userElem = document.createElement("li")
+            userElem.textContent = user.nick
+            if (user.id === sessionUser.id) {
+                userElem.className = "self"
+            }
+            groupMembers.appendChild(userElem)
+        }
+    })
+
+    SWC.bind("sync-new-message", fp => {
+        const msgPkg = JSON.parse(fp.body)
+        showMsg(msgPkg)
+    })
+
+    function showMsg(msgPkg) {
+        const isSelf = msgPkg.uid === sessionUser.id
+        const msgBubble = chatBoard.appendChild(document.createElement("div"))
+        msgBubble.className = "msg-bubble " + (isSelf ? "self" : "")
+        const msgHead = msgBubble.appendChild(document.createElement("div"))
+        msgHead.className = "msg-head"
+        const userWrap = msgHead.appendChild(document.createElement("span"))
+        userWrap.className = "user-wrap"
+        userWrap.textContent = isSelf ? "ME" : msgPkg.nick
+        const timeWrap = document.createElement("span")
+        timeWrap.className = "time-wrap"
+        timeWrap.textContent = msgPkg.time
+        if (isSelf) {
+            msgHead.insertBefore(timeWrap, userWrap)
+        } else {
+            msgHead.appendChild(timeWrap)
+        }
+        const msgContent = msgBubble.appendChild(document.createElement("p"))
+        msgContent.textContent = msgPkg.msg
+        chatBoard.scrollTop = chatBoard.scrollHeight
+    }
+
+    editorWrap.onsubmit = function () {
+        sendMsg()
+        return false
+    }
+
+    async function sendMsg() {
+        if (editor.value === "") {
+            alert("empty message cannot send")
+            return
+        }
+        await SWC.request("send", editor.value)
+        editor.value = ""
+    }
+</script>
+</body>
+</html>
