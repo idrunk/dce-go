@@ -2,6 +2,10 @@ package apis
 
 import (
 	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+
 	"github.com/idrunk/dce-go/converter"
 	"github.com/idrunk/dce-go/proto"
 	"github.com/idrunk/dce-go/router"
@@ -9,9 +13,6 @@ import (
 	"github.com/idrunk/dce-go/session/redises"
 	"github.com/idrunk/dce-go/util"
 	"github.com/redis/go-redis/v9"
-	"net/http"
-	"slices"
-	"strings"
 )
 
 func init() {
@@ -47,7 +48,7 @@ func bind() {
 			return
 		}
 		member, ok := util.SeqFrom(members()).Find(func(m Member) bool {
-			return strings.ToLower(m.Name) == strings.ToLower(name)
+			return strings.EqualFold(m.Name, name)
 		})
 		if !ok && jc.Fail("Wrong name", 1001) {
 			return

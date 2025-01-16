@@ -160,7 +160,7 @@ func (a Api) Append(key string, items ...any) Api {
 		a.Extras[key] = new([]any)
 	}
 	val := a.Extras[key]
-	if vec, ok := val.([]any); ok || vec == nil {
+	if vec, ok := val.([]any); ok || len(vec) == 0 {
 		a.Extras[key] = append(vec, items...)
 	} else {
 		log.Panicf("Api with path \"%s\" was already has an extra keyd by \"%s\", but is not a slice value.", a.Path, key)
@@ -206,7 +206,7 @@ func (a Api) Hosts() []string {
 }
 
 func Path(path string) Api {
-	return Api{Path: path}
+	return Api{Path: path, Responsive: true}
 }
 
 const extraServeAddrKey = "$#BIND-HOSTS#"

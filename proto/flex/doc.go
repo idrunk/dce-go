@@ -8,12 +8,12 @@ Protocol format:
 	 0 1 2 3 4 5 6 7 0 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 	+-+-+-+-+-+-+-+-+- - - - - - - - -  - - - - - - - - - - - - - - - - - - - - - - |
 	|I|P|S|C|M|L|N|R| LEN of| LEN of| LEN of| LEN of|  ID   |  CODE |NumPath| same  |
-	|D|A|I|O|S|O|P|S| Path  | Sid   | Msg   |Payload|FlexNum|FlexNum|FlexNum| order |
+	|D|A|I|O|S|O|P|S| Path  | Sid   | Msg   |  Body |FlexNum|FlexNum|FlexNum| order |
 	|E|T|D|D|G|A|A|V|FlexNum|FlexNum|FlexNum|FlexNum| HEAD  | HEAD  | HEAD  |FlexNum|
 	|N|H| |E| |D|T| | HEAD  | HEAD  | HEAD  | HEAD  |       |       |       | BODY  |
 	+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+ - - - - - - - - - - - - - - - - - - - - - - - |
 	|      |     |     |                                                            |
-	| Path | Sid | Msg |                     Payload Data ...                       |
+	| Path | Sid | Msg |                       Body Data ...                        |
 	|      |     |     |                                                            |
 	+-+-------------+-+-------------+-+-------------+-------------------------------+
 

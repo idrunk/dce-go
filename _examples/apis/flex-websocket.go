@@ -5,12 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/coder/websocket"
-	"github.com/idrunk/dce-go/converter"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/proto/flex"
-	"github.com/idrunk/dce-go/session"
-	"github.com/idrunk/dce-go/util"
 	"log"
 	"log/slog"
 	"math/rand/v2"
@@ -18,9 +12,17 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/idrunk/dce-go/converter"
+	"github.com/idrunk/dce-go/proto"
+	"github.com/idrunk/dce-go/proto/flex"
+	"github.com/idrunk/dce-go/session"
+	"github.com/idrunk/dce-go/util"
 )
 
 func init() {
+	// go run . websocket start
 	proto.CliRouter.Push("websocket/start", FlexWebsocketStart)
 }
 
@@ -48,7 +50,7 @@ func flexWebsocketBind(port string) {
 			slog.Warn(err.Error())
 			return
 		}
-		shadowSess, err := session.NewShmSession[*session.SimpleUser]([]string{h.Param("sid")}, session.DefaultTtlMinutes)
+		shadowSess, _ := session.NewShmSession[*session.SimpleUser]([]string{h.Param("sid")}, session.DefaultTtlMinutes)
 		flex.WebsocketRouter.SetMapping(h.Rp.Req.RemoteAddr, c)
 		defer func() {
 			flex.WebsocketRouter.Unmapping(h.Rp.Req.RemoteAddr)
@@ -56,7 +58,7 @@ func flexWebsocketBind(port string) {
 			go syncUserList(shadowSess, h, nil)
 		}()
 		if shadowSess != nil {
-			shadowSess.Connect(":2047", h.Rp.Req.RemoteAddr, true)
+			shadowSess.Connect(":2047", h.Rp.Req.RemoteAddr)
 			defer shadowSess.Disconnect()
 			if _, ok := shadowSess.User(); !ok {
 				// auto register and login

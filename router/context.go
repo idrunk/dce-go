@@ -49,6 +49,13 @@ func (c *Context[Rp]) Param(key string) string {
 	return ""
 }
 
+func (c *Context[Rp]) ParamOr(key string, def string) string {
+	if param, ok := c.params[key]; ok {
+		return param.Value()
+	}
+	return def
+}
+
 func (c *Context[Rp]) Params(key string) []string {
 	if param, ok := c.params[key]; ok {
 		return param.Values()
