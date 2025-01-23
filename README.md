@@ -28,13 +28,13 @@ DCE is committed to building an efficient, open, and secure universal routing li
 ---
 
 **TODO**:
-- Optimize the JS version of the WebSocket routable protocol client and improve the Golang client implementations for various protocols.
-- Upgrade the controller pre- and post-event interfaces to support binding with program interfaces.
-- Enhance support for digital paths.
-- Refactor elastic numeric functions into structural method styles.
-- Investigate the possibility of supporting custom business attributes in routable protocols.
-- Upgrade the feature version of DCE-RUST.
-- Gradually replace AI-generated documentation with manually written documentation.
+- [ ] Optimize the JS version of the WebSocket routable protocol client and improve the Golang client implementations for various protocols.
+- [ ] Upgrade the controller pre- and post-event interfaces to support binding with program interfaces.
+- [ ] Enhance support for digital paths.
+- [ ] Refactor elastic numeric functions into structural method styles.
+- [ ] Investigate the possibility of supporting custom business attributes in routable protocols.
+- [ ] Upgrade the feature version of DCE-RUST.
+- [ ] Gradually replace AI-generated documentation with manually written documentation.
 
 ---
 
