@@ -2,12 +2,13 @@ package session
 
 import (
 	"fmt"
-	"github.com/idrunk/dce-go/util"
 	"math/rand/v2"
 	"slices"
 	"strconv"
 	"sync"
 	"time"
+
+	"go.drunkce.com/dce/util"
 )
 
 // sessionMapping map[string]*shmMeta

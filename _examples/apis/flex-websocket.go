@@ -5,12 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/coder/websocket"
-	"github.com/idrunk/dce-go/converter"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/proto/flex"
-	"github.com/idrunk/dce-go/session"
-	"github.com/idrunk/dce-go/util"
 	"log"
 	"log/slog"
 	"math/rand/v2"
@@ -18,9 +12,17 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/coder/websocket"
+	"go.drunkce.com/dce/converter"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/proto/flex"
+	"go.drunkce.com/dce/session"
+	"go.drunkce.com/dce/util"
 )
 
 func init() {
+	// go run . websocket start
 	proto.CliRouter.Push("websocket/start", FlexWebsocketStart)
 }
 
@@ -36,8 +38,8 @@ func flexWebsocketBind(port string) {
 	converter.TplConfig.SetRoot(wd + "/apis/")
 
 	proto.HttpRouter.Get("", func(h *proto.Http) {
-		t := converter.FileTemplate[*proto.HttpProtocol, struct{ ServerAddr string }](h, "flex-websocket.html")
-		t.Response(struct{ ServerAddr string }{
+		t := converter.FileTemplate[*proto.HttpProtocol, *struct{ ServerAddr string }](h, "flex-websocket.html")
+		t.Response(&struct{ ServerAddr string }{
 			ServerAddr: "ws://127.0.0.1:" + port + "/ws",
 		})
 	})
@@ -48,7 +50,7 @@ func flexWebsocketBind(port string) {
 			slog.Warn(err.Error())
 			return
 		}
-		shadowSess, err := session.NewShmSession[*session.SimpleUser]([]string{h.Param("sid")}, session.DefaultTtlMinutes)
+		shadowSess, _ := session.NewShmSession[*session.SimpleUser]([]string{h.Param("sid")}, session.DefaultTtlMinutes)
 		flex.WebsocketRouter.SetMapping(h.Rp.Req.RemoteAddr, c)
 		defer func() {
 			flex.WebsocketRouter.Unmapping(h.Rp.Req.RemoteAddr)
@@ -56,7 +58,7 @@ func flexWebsocketBind(port string) {
 			go syncUserList(shadowSess, h, nil)
 		}()
 		if shadowSess != nil {
-			shadowSess.Connect(":2047", h.Rp.Req.RemoteAddr, true)
+			shadowSess.Connect(":2047", h.Rp.Req.RemoteAddr)
 			defer shadowSess.Disconnect()
 			if _, ok := shadowSess.User(); !ok {
 				// auto register and login
@@ -125,7 +127,7 @@ func flexWebsocketBind(port string) {
 }
 
 func syncUserList(sess *session.ShmSession[*session.SimpleUser], h *proto.Http, user *session.SimpleUser) {
-	var userList []session.SimpleUser
+	var userList []*session.SimpleUser
 	connList := make(map[string]*websocket.Conn)
 	for addr, uid := range flex.WebsocketRouter.UidMapping() {
 		if uses, _ := sess.ListByUid(uid); len(uses) > 0 {
@@ -133,16 +135,16 @@ func syncUserList(sess *session.ShmSession[*session.SimpleUser], h *proto.Http, 
 			if u, o := us.User(); o {
 				conn, _ := flex.WebsocketRouter.ConnBy(addr)
 				connList[addr] = conn
-				if !slices.ContainsFunc(userList, func(ru session.SimpleUser) bool {
+				if !slices.ContainsFunc(userList, func(ru *session.SimpleUser) bool {
 					return ru.Id == u.Id
 				}) {
-					userList = append(userList, *u)
+					userList = append(userList, u)
 				}
 			}
 		}
 	}
 	resp := struct {
-		UserList    []session.SimpleUser `json:"userList"`
+		UserList    []*session.SimpleUser `json:"userList"`
 		SessionUser *session.SimpleUser  `json:"sessionUser,omitempty"`
 	}{
 		UserList: userList,

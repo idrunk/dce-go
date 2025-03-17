@@ -4,7 +4,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 const (
@@ -80,7 +80,7 @@ type Api struct {
 	Responsive bool
 	Redirect   string
 	Name       string
-	Extras     map[string]any
+	extras     map[string]any
 }
 
 func (a Api) ByMethod(method Method) Api {
@@ -88,27 +88,17 @@ func (a Api) ByMethod(method Method) Api {
 	return a
 }
 
-func (a Api) BySuffix(suffixes Suffix) Api {
-	a.Suffixes = append(a.Suffixes, suffixes)
-	return a
-}
-
-func (a Api) BySuffixes(suffixes ...Suffix) Api {
-	a.Suffixes = suffixes
-	return a
-}
-
-func (a Api) IsOmission() Api {
+func (a Api) AsOmission() Api {
 	a.Omission = true
 	return a
 }
 
-func (a Api) IsResponsive() Api {
+func (a Api) AsResponsive() Api {
 	a.Responsive = true
 	return a
 }
 
-func (a Api) Unresponsive() Api {
+func (a Api) AsUnresponsive() Api {
 	a.Responsive = false
 	return a
 }
@@ -134,10 +124,10 @@ func (a Api) ByName(name string) Api {
 // Returns:
 //   - The modified `Api` instance with the updated `Extras` map.
 func (a Api) With(key string, val any) Api {
-	if a.Extras == nil {
-		a.Extras = make(map[string]interface{})
+	if a.extras == nil {
+		a.extras = make(map[string]interface{})
 	}
-	a.Extras[key] = val
+	a.extras[key] = val
 	return a
 }
 
@@ -153,15 +143,15 @@ func (a Api) With(key string, val any) Api {
 // Returns:
 //   - The modified `Api` instance with the updated `Extras` map.
 func (a Api) Append(key string, items ...any) Api {
-	if val := a.Extras[key]; val == nil {
-		if a.Extras == nil {
-			a.Extras = make(map[string]interface{})
+	if val := a.extras[key]; val == nil {
+		if a.extras == nil {
+			a.extras = make(map[string]interface{})
 		}
-		a.Extras[key] = new([]any)
+		a.extras[key] = new([]any)
 	}
-	val := a.Extras[key]
-	if vec, ok := val.([]any); ok || vec == nil {
-		a.Extras[key] = append(vec, items...)
+	val := a.extras[key]
+	if vec, ok := val.([]any); ok || len(vec) == 0 {
+		a.extras[key] = append(vec, items...)
 	} else {
 		log.Panicf("Api with path \"%s\" was already has an extra keyd by \"%s\", but is not a slice value.", a.Path, key)
 	}
@@ -169,14 +159,14 @@ func (a Api) Append(key string, items ...any) Api {
 }
 
 func (a Api) ExtraBy(key string) any {
-	if val, ok := a.Extras[key]; ok {
+	if val, ok := a.extras[key]; ok {
 		return val
 	}
 	return nil
 }
 
 func (a Api) ExtrasBy(key string) []any {
-	if val, ok := a.Extras[key]; ok {
+	if val, ok := a.extras[key]; ok {
 		if vec, ok := val.([]any); ok {
 			return vec
 		}
@@ -206,7 +196,7 @@ func (a Api) Hosts() []string {
 }
 
 func Path(path string) Api {
-	return Api{Path: path}
+	return Api{Path: path, Responsive: true}
 }
 
 const extraServeAddrKey = "$#BIND-HOSTS#"

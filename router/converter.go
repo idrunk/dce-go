@@ -3,47 +3,97 @@ package router
 import (
 	"reflect"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
-// RequestProcessor is a generic interface that defines the contract for processing requests.
-// It is parameterized with two types: Obj and Dto.
-//   - Obj represents the type of the object that will be processed.
-//   - Dto represents the type of the Data Transfer Object (DTO) that will be used for serialization or deserialization.
-// Implementations of this interface are expected to handle the processing logic for converting between Obj and Dto,
-// and for managing the request lifecycle, including error handling and response generation.
-type RequestProcessor[Obj, Dto any] interface {
-	// Response processes the given response object of type Obj and returns a boolean indicating success or failure.
-	// This method is typically used to handle the final output of a request processing pipeline.
-	Response(resp Obj) bool
-
-	// Error handles an error encountered during request processing and returns a boolean indicating whether the error was successfully handled.
-	// This method is used to manage error states and ensure proper error reporting.
-	Error(err error) bool
-
-	// Success processes a successful response with the provided data and returns a boolean indicating success.
-	// This method is used to handle successful outcomes and generate appropriate responses.
-	Success(data any) bool
-
-	// Fail processes a failure response with the provided error message and status code, and returns a boolean indicating failure.
-	// This method is used to handle failed outcomes and generate appropriate error responses.
-	Fail(msg string, code int) bool
-
-	// Status processes a response with the provided status, message, status code, and data, and returns a boolean indicating success or failure.
-	// This method is a more generalized version of Success and Fail, allowing for custom status handling.
-	Status(status bool, msg string, code int, data any) bool
+type Requester[Rp RoutableProtocol, ReqDto, Req any] struct {
+	Context *Context[Rp]
+	Deserializer Deserializer[ReqDto]
 }
 
-type Parser[Obj any] interface {
-	Parse() (Obj, bool)
+func (r *Requester[Rp, ReqDto, Req]) Deserialize(seq []byte) (Req, error) {
+	dto, err := r.Deserializer.Deserialize(seq)
+	if err != nil {
+		return util.NewStruct[Req](), err
+	}
+	return DtoInto[ReqDto, Req](dto)
 }
 
-type Serializer[Dto any] interface {
-	Serialize(dto Dto) ([]byte, error)
+func (r *Requester[Rp, ReqDto, Req]) Parse() (Req, bool) {
+	if body, err := r.Context.Body(); err != nil {
+		r.Context.Rp.SetError(err)
+	} else if req, err := r.Deserialize(body); err != nil {
+		r.Context.Rp.SetError(err)
+	} else {
+		return req, true
+	}
+	return util.NewStruct[Req](), false
 }
 
-type Deserializer[Dto any] interface {
-	Deserialize(bytes []byte) (Dto, error)
+
+type Responser[Rp RoutableProtocol, Resp, RespDto any] struct {
+	Context *Context[Rp]
+	Serializer Serializer[RespDto]
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Serialize(obj Resp) ([]byte, error) {
+	dto, err := DtoFrom[Resp, RespDto](obj)
+	if err != nil {
+		return nil, err
+	}
+	return r.Serializer.Serialize(dto)
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Response(obj Resp) bool {
+	if seq, err := r.Serialize(obj); err != nil {
+		r.Context.Rp.SetError(err)
+	} else if _, err := r.Context.Write(seq); err != nil {
+		r.Context.Rp.SetError(err)
+	}
+	return true
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Error(err error) bool {
+	r.Context.Rp.SetError(err)
+	code, msg := util.ResponseUnits(err)
+	return r.Status(false, msg, code, nil)
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Success(data *string) bool {
+	return r.Status(true, "", 0, data)
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Fail(msg string, code int) bool {
+	return r.Status(false, msg, code, nil)
+}
+
+func (r *Responser[Rp, Resp, RespDto]) Status(status bool, msg string, code int, data *string) bool {
+	if ! status && r.Context.Rp.Error() == nil {
+		r.Context.Rp.SetError(util.Openly(code, "%s", msg))
+	}
+	if reflect.TypeFor[Resp]() == reflect.TypeFor[*Status]() {
+		obj := &Status{Status: status, Msg: msg, Code: code, Data: data}
+		return r.Response(any(obj).(Resp))
+	} else if data != nil {
+		r.Context.WriteString(*data)
+	}
+	return true
+}
+
+type Status struct {
+	Status bool   	`json:"status,omitempty"`
+	Code   int    	`json:"code,omitempty"`
+	Msg    string 	`json:"msg,omitempty"`
+	Data   *string  `json:"data,omitempty"`
+}
+
+
+type Serializer[T any] interface {
+	Serialize(obj T) ([]byte, error)
+}
+
+type Deserializer[T any] interface {
+	Deserialize(bytes []byte) (T, error)
 }
 
 type Into[T any] interface {
@@ -55,30 +105,21 @@ type From[S, T any] interface {
 }
 
 func DtoInto[Dto, Obj any](dto Dto) (Obj, error) {
-	if d, ok := any(dto).(Obj); ok {
-		return d, nil
-	} else if d2, ok2 := any(&dto).(Into[Obj]); ok2 {
-		return d2.Into()
+	if obj, ok := any(dto).(Obj); ok {
+		return obj, nil
+	} else if dto, ok := any(dto).(Into[Obj]); ok {
+		return dto.Into()
 	}
-	var obj Obj
-	return obj, util.Closed0(`Type "%s" doesn't implement the "%s" interface`, reflect.TypeFor[Dto](), reflect.TypeFor[Into[Obj]]())
+	return util.NewStruct[Obj](), util.Closed0(`Type "%s" doesn't implement the "%s" interface`, reflect.TypeFor[Dto](), reflect.TypeFor[Into[Obj]]())
 }
 
 func DtoFrom[Obj, Dto any](obj Obj) (Dto, error) {
-	dto := new(Dto)
-	if d, ok := any(obj).(Dto); ok {
-		return d, nil
-	} else if d2, ok2 := any(dto).(From[Obj, Dto]); ok2 {
-		return d2.From(obj)
+	if dto, ok := any(obj).(Dto); ok {
+		return dto, nil
 	}
-	return *dto, util.Closed0(`Type "%s" doesn't implement the "%s" interface`, reflect.TypeFor[Dto](), reflect.TypeFor[From[Obj, Dto]]())
-}
-
-type DoNotConvert uint8
-
-type Status struct {
-	Status bool   `json:"status,omitempty"`
-	Code   int    `json:"code,omitempty"`
-	Msg    string `json:"msg,omitempty"`
-	Data   any    `json:"data,omitempty"`
+	var emp Dto
+	if dto, ok := any(emp).(From[Obj, Dto]); ok {
+		return dto.From(obj)
+	}
+	return emp, util.Closed0(`Type "%s" doesn't implement the "%s" interface`, reflect.TypeFor[Dto](), reflect.TypeFor[From[Obj, Dto]]())
 }

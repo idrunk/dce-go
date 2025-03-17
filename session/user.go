@@ -3,7 +3,7 @@ package session
 import (
 	"strconv"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 const DefaultUserPrefix = "dceusmap"

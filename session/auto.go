@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 const DefaultNewSidField = "$newid"

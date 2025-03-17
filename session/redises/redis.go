@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/idrunk/dce-go/session"
-	"github.com/idrunk/dce-go/util"
 	"github.com/redis/go-redis/v9"
+	"go.drunkce.com/dce/session"
+	"go.drunkce.com/dce/util"
 )
 
 // Session is a generic struct that represents a session in a Redis-backed session management system.

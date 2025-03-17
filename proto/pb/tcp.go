@@ -1,11 +1,12 @@
 package pb
 
 import (
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/proto/flex"
-	"github.com/idrunk/dce-go/router"
 	"log/slog"
 	"net"
+
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/proto/flex"
+	"go.drunkce.com/dce/router"
 )
 
 type Tcp = router.Context[*TcpProtocol]

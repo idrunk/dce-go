@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/idrunk/dce-go/converter"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/converter"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/util"
 )
 
 func init() {
@@ -52,13 +52,13 @@ func HttpStart(c *proto.Cli) {
 func var1(c *proto.Http) {
 	user := c.Param("var1")
 	c.Rp.Req.Header.Set("Content-Type", "text/xml")
-	te := converter.TextTemplate[*proto.HttpProtocol, Greeting](c, `<?xml version="1.0" encoding="UTF-8"?>
+	te := converter.TextTemplate[*proto.HttpProtocol, *Greeting](c, `<?xml version="1.0" encoding="UTF-8"?>
 <greeting>
 	<user>{{.User}}</user>
 	<age>{{.Age}}</age>
 	<welcome>{{.Welcome}}</welcome>
 </greeting>`)
-	te.Response(Greeting{
+	te.Response(&Greeting{
 		User:    user,
 		Age:     0,
 		Welcome: "Welcome to DCE-GO",
@@ -98,7 +98,7 @@ func var6(c *proto.Http) {
 // curl http://127.0.0.1:2046/session/drunk
 // curl -I http://127.0.0.1:2046/session
 func sessionApi(c *proto.Http) {
-	t := converter.EmptyTemplate(c)
+	t := converter.StatusTemplate(c)
 	if username := c.Param("username"); username == "dce" {
 		msg, _ := c.Rp.CtxData("hello")
 		fmt.Println(msg)
@@ -117,21 +117,21 @@ func hello(c *proto.Http) {
 // curl -H "Content-Type: application/json" -d "{""user"":""Drunk"",""age"":18}" http://127.0.0.1:2046/hello
 func helloPost(c *proto.Http) {
 	var legalAge uint8 = 18
-	jc := converter.JsonConverter[*proto.HttpProtocol, GreetingReq, Greeting, Greeting, GreetingResp](c)
-	body, _ := jc.Parse()
+	jc := converter.JsonResponser[*proto.HttpProtocol, *Greeting, *GreetingResp](c)
+	body, _ := converter.JsonRequester[*proto.HttpProtocol, *GreetingReq, *Greeting](c).Parse()
 	fmt.Println(body)
 	if body.Age >= legalAge {
 		body.Welcome = fmt.Sprintf("Hello %s, welcome", body.User)
 		jc.Response(body)
 	} else {
-		jc.Fail(fmt.Sprintf("Sorry, only service for over %d years old peoples", legalAge), 0)
+		jc.Fail(fmt.Sprintf("Sorry, only service for over %d years old peoples", legalAge), 403)
 	}
 }
 
 // curl http://127.0.0.1:2046/
 func home(c *proto.Http) {
-	jc := converter.JsonConverterNoParse[*proto.HttpProtocol, Greeting, GreetingResp](c)
-	jc.Response(Greeting{
+	jc := converter.JsonResponser[*proto.HttpProtocol, *Greeting, *GreetingResp](c)
+	jc.Response(&Greeting{
 		User:    "Dce",
 		Age:     18,
 		Welcome: "Welcome to Golang",
@@ -153,16 +153,16 @@ type GreetingResp struct {
 	Welcome string `json:"welcome"`
 }
 
-func (gr *GreetingReq) Into() (Greeting, error) {
-	return Greeting{
+func (gr *GreetingReq) Into() (*Greeting, error) {
+	return &Greeting{
 		User:    gr.User,
 		Age:     gr.Age,
 		Welcome: "",
 	}, nil
 }
 
-func (gr *GreetingResp) From(g Greeting) (GreetingResp, error) {
-	return GreetingResp{
+func (gr *GreetingResp) From(g *Greeting) (*GreetingResp, error) {
+	return &GreetingResp{
 		Welcome: g.Welcome,
 	}, nil
 }

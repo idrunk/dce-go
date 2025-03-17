@@ -4,29 +4,29 @@ import (
 	"bytes"
 	"crypto/md5"
 	"fmt"
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/util"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/util"
 )
 
-type TemplateEngine[Rp router.RoutableProtocol, Resp any] struct {
-	*router.Context[Rp]
-	tpl *template.Template
+func TemplateResponser[Rp router.RoutableProtocol, D any](ctx *router.Context[Rp], tmpl *template.Template) *router.Responser[Rp, D, D] {
+	return &router.Responser[Rp, D, D]{ Context: ctx, Serializer: TemplateEngine[D]{tmpl}}
 }
 
-func FileTemplate[Rp router.RoutableProtocol, Resp any](c *router.Context[Rp], tplPath string) TemplateEngine[Rp, Resp] {
-	return TemplateEngine[Rp, Resp]{c, fileTemplate(tplPath, "")}
+func FileTemplate[Rp router.RoutableProtocol, D any](c *router.Context[Rp], tplPath string) *router.Responser[Rp, D, D] {
+	return TemplateResponser[Rp, D](c, fileTemplate(tplPath, ""))
 }
 
-func TextTemplate[Rp router.RoutableProtocol, Resp any](c *router.Context[Rp], text string) TemplateEngine[Rp, Resp] {
-	return TemplateEngine[Rp, Resp]{c, textTemplate(text, "")}
+func TextTemplate[Rp router.RoutableProtocol, D any](c *router.Context[Rp], text string) *router.Responser[Rp, D, D] {
+	return TemplateResponser[Rp, D](c, textTemplate(text, ""))
 }
 
-func EmptyTemplate[Rp router.RoutableProtocol](c *router.Context[Rp]) TemplateEngine[Rp, router.DoNotConvert] {
-	return TemplateEngine[Rp, router.DoNotConvert]{Context: c}
+func StatusTemplate[Rp router.RoutableProtocol](c *router.Context[Rp]) *router.Responser[Rp, *router.Status, *router.Status] {
+	return TemplateResponser[Rp, *router.Status](c, nil)
 }
 
 func fileTemplate(tplPath string, key string) *template.Template {
@@ -61,54 +61,27 @@ func textTemplate(text string, key string) *template.Template {
 	})
 }
 
-func (t *TemplateEngine[Rp, Resp]) Serialize(resp Resp) ([]byte, error) {
+type TemplateEngine[D any] struct {
+	*template.Template
+}
+
+func (t TemplateEngine[D]) Serialize(resp D) ([]byte, error) {
+	tpl := t.Template
+	if status, ok := any(resp).(*router.Status); ok {
+		if status.Code == 0 {
+			status.Code = util.ServiceUnavailable
+		}
+		if status.Code == 404 {
+			tpl = statusTemplate(NotfoundTplId)
+		} else {
+			tpl = statusTemplate(StatusTplId)
+		}
+	}
 	buff := new(bytes.Buffer)
-	if err := t.tpl.Execute(buff, resp); err != nil {
+	if err := tpl.Execute(buff, resp); err != nil {
 		return nil, err
 	}
 	return buff.Bytes(), nil
-}
-
-func (t *TemplateEngine[Rp, Resp]) Response(resp Resp) bool {
-	if bs, err := t.Serialize(resp); err != nil {
-		t.Rp.SetError(err)
-	} else if _, err := t.Rp.Write(bs); err != nil {
-		t.Rp.SetError(err)
-	}
-	return true
-}
-
-func (t *TemplateEngine[Rp, Resp]) Error(err error) bool {
-	code, msg := util.ResponseUnits(err)
-	return t.Status(false, msg, code, nil)
-}
-
-func (t *TemplateEngine[Rp, Resp]) Success(data any) bool {
-	return t.Status(true, "", 0, data)
-}
-
-func (t *TemplateEngine[Rp, Resp]) Fail(msg string, code int) bool {
-	return t.Status(false, msg, code, nil)
-}
-
-func (t *TemplateEngine[Rp, Resp]) Status(status bool, msg string, code int, data any) bool {
-	if code == 0 {
-		code = util.ServiceUnavailable
-	}
-	s := router.Status{Status: status, Msg: msg, Code: code, Data: data}
-	var tpl *template.Template
-	if code == 404 {
-		tpl = statusTemplate(NotfoundTplId)
-	} else {
-		tpl = statusTemplate(StatusTplId)
-	}
-	buff := new(bytes.Buffer)
-	if err := tpl.Execute(buff, s); err != nil {
-		t.Rp.SetError(err)
-	} else if _, err := t.Write(buff.Bytes()); err != nil {
-		t.Rp.SetError(err)
-	}
-	return true
 }
 
 func statusTemplate(tplId string) *template.Template {

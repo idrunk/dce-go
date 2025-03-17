@@ -2,16 +2,17 @@ package apis
 
 import (
 	"fmt"
-	"github.com/idrunk/dce-go/converter"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/session"
-	"github.com/idrunk/dce-go/session/redises"
-	"github.com/idrunk/dce-go/util"
-	"github.com/redis/go-redis/v9"
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/redis/go-redis/v9"
+	"go.drunkce.com/dce/converter"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/session"
+	"go.drunkce.com/dce/session/redises"
+	"go.drunkce.com/dce/util"
 )
 
 func init() {
@@ -37,8 +38,8 @@ func bind() {
 	// curl http://127.0.0.1:2050/login -d "{""name"":""Drunk""}" // role 1
 	// curl http://127.0.0.1:2050/login -d "{""name"":""Dce""}" // role 2
 	proto.HttpRouter.Post("login", func(h *proto.Http) {
-		jc := converter.JsonMapConverter(h)
-		u, ok := jc.Parse()
+		jc := converter.JsonMapResponser(h)
+		u, ok := converter.JsonMapRequester(h).Parse()
 		if !ok {
 			return
 		}
@@ -47,7 +48,7 @@ func bind() {
 			return
 		}
 		member, ok := util.SeqFrom(members()).Find(func(m Member) bool {
-			return strings.ToLower(m.Name) == strings.ToLower(name)
+			return strings.EqualFold(m.Name, name)
 		})
 		if !ok && jc.Fail("Wrong name", 1001) {
 			return
@@ -68,7 +69,7 @@ func bind() {
 	// curl http://127.0.0.1:2050/manage/profile -H "X-Session-Id: $session_id" //  pass sid on header, can access if sid is valid
 	// curl http://127.0.0.1:2050/manage/profile -b "session_id=$session_id" //  pass sid in cookies, can access if sid is valid
 	// curl http://127.0.0.1:2050/manage/profile?autologin=1 -H "X-Session-Id: $session_id" //  use long life sid to do auto login, will get new sid and the old will destroy
-	proto.HttpRouter.PushApi(router.Path("manage/profile").ByMethod(proto.HttpGet).Append("roles", 1).BindHosts("2050"), func(h *proto.Http) {
+	proto.HttpRouter.PushApi(router.Path("manage/profile").ByMethod(proto.HttpGet).Append("roles", 1, 2).BindHosts("2050"), func(h *proto.Http) {
 		se := h.Rp.Session()
 		if se == nil && h.SetError(util.Openly0("Invalid session")) {
 			return
@@ -81,8 +82,8 @@ func bind() {
 	// curl -X PATCH http://127.0.0.1:2050/manage/profile -H "X-Session-Id: $session_id" -d "{}" // none required fields, got openly err response
 	// curl -X PATCH http://127.0.0.1:2050/manage/profile -H "X-Session-Id: $session_id" -d "{""name"":""Foo"",""role_id"":2}" // with required, curren session user will update to role 2
 	proto.HttpRouter.PushApi(router.Path("manage/profile").ByMethod(proto.HttpPatch).Append("roles", 1), func(h *proto.Http) {
-		jc := converter.JsonMapConverter(h)
-		u, ok := jc.Parse()
+		jc := converter.JsonMapResponser(h)
+		u, ok := converter.JsonMapRequester(h).Parse()
 		if !ok {
 			return
 		}
@@ -221,7 +222,7 @@ type Member struct {
 	RoleId uint16
 }
 
-func (m *Member) Uid() uint64 {
+func (m Member) Uid() uint64 {
 	return m.Id
 }
 

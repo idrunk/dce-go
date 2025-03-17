@@ -3,8 +3,8 @@ package apis
 import (
 	"fmt"
 
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/router"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/router"
 )
 
 func BindCli() {

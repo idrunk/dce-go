@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+option go_package = "./converter";
+
+message Status {
+	optional bool    status  = 1;
+	optional int64   code    = 2;
+	optional string  msg     = 3;
+    optional string  data    = 4;
+}

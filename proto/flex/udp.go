@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/idrunk/dce-go/router"
 	"net"
+
+	"go.drunkce.com/dce/router"
 )
 
 type Udp = router.Context[*UdpProtocol]

@@ -1,16 +1,8 @@
 package session
 
-import "maps"
-
 const (
 	DefaultServerField = "$server"
 	DefaultClientField = "$client"
-)
-
-const (
-	// typeInfoShadow = 0
-	typeEntryShadow = iota + 1
-	typeRequest
 )
 
 // ConnectionSession represents a session associated with a connection. It extends the BasicSession
@@ -23,7 +15,7 @@ type ConnectionSession struct {
 	// shadow is a connection level session used to update the connection session through this attribute when the sid
 	// is updated under the request session, in order to update session information when the connection is disconnected
 	shadow      *ConnectionSession
-	ty          int
+	request          bool
 	serverField string
 	clientField string
 	// log the connection info to let the request session to store it
@@ -42,12 +34,10 @@ func (c *ConnectionSession) CloneConnection(cloned IfConnection, basic *BasicSes
 	return &connection
 }
 
-func (c *ConnectionSession) Connect(server string, client string, entry bool) *ConnectionSession {
+// Connect bind the addresses of server and client to the session.
+func (c *ConnectionSession) Connect(server string, client string) *ConnectionSession {
 	c.serverToBind = server
 	c.clientToBind = client
-	if entry {
-		c.ty = typeEntryShadow
-	}
 	return c
 }
 
@@ -61,7 +51,7 @@ func (c *ConnectionSession) Disconnect() error {
 }
 
 func (c *ConnectionSession) Request() bool {
-	return c.ty == typeRequest
+	return c.request
 }
 
 func (c *ConnectionSession) UpdateShadow(newSid string) error {
@@ -81,21 +71,11 @@ func (c *ConnectionSession) CloneForRequest(sid string) (any, error) {
 func (c *ConnectionSession) handleClonedRequest(original *ConnectionSession) {
 	c.newborn = false
 	c.shadow = original
-	c.ty = typeRequest
+	c.request = true
 	if len(original.serverToBind) > 0 {
 		c.serverToBind, c.clientToBind = original.serverToBind, original.clientToBind
-		data := map[string]interface{}{}
-		// for some protocol could connect with session id, could be had information stored
-		if original.ty == typeEntryShadow {
-			if raw, err := original.Raw(); err == nil {
-				data = raw
-			}
-		}
-		maps.Copy(data, map[string]any{
-			original.serverField: original.serverToBind,
-			original.clientField: original.clientToBind,
-		})
-		if err := c.Load(data); err == nil {
+		if err := c.SilentSet(c.serverField, c.serverToBind); err == nil {
+			c.SilentSet(c.clientField, c.clientToBind)
 			original.serverToBind, original.clientToBind = "", ""
 		}
 	}

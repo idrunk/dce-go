@@ -1,11 +1,12 @@
 package pb
 
 import (
-	"github.com/idrunk/dce-go/router"
-	"google.golang.org/protobuf/proto"
 	"log/slog"
 	"math"
 	"sync/atomic"
+
+	"go.drunkce.com/dce/router"
+	"google.golang.org/protobuf/proto"
 )
 
 type PackageProtocol[Req any] struct {

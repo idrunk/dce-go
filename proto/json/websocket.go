@@ -1,11 +1,12 @@
 package json
 
 import (
-	"github.com/coder/websocket"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/router"
 	"log/slog"
 	"net/http"
+
+	"github.com/coder/websocket"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/router"
 )
 
 type Websocket = router.Context[*WebsocketProtocol]

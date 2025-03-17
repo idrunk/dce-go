@@ -3,12 +3,13 @@ package proto
 import (
 	"bytes"
 	"fmt"
-	"github.com/idrunk/dce-go/router"
 	"io"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
+
+	"go.drunkce.com/dce/router"
 )
 
 const (

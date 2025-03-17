@@ -7,16 +7,17 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/proto/flex"
-	"github.com/idrunk/dce-go/router"
-	"github.com/quic-go/quic-go"
 	"log/slog"
 	"math/rand/v2"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quic-go/quic-go"
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/proto/flex"
+	"go.drunkce.com/dce/router"
 )
 
 const alpn = "dce-quic-example"

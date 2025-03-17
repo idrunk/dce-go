@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 const CodeNotFound = 404
@@ -167,7 +167,7 @@ func (r *Router[Rp]) suffixPath(path string, suffix *Suffix) string {
 	if suffix == nil || len(*suffix) == 0 {
 		return path
 	}
-	return fmt.Sprintf("%s%s%s", path, MarkSuffixBoundary, suffix)
+	return fmt.Sprintf("%s%s%s", path, MarkSuffixBoundary, *suffix)
 }
 
 func (r *Router[Rp]) buildTree() {
@@ -202,8 +202,15 @@ func (r *Router[Rp]) buildTree() {
 					fills = append(fills, util.NewTuple2(path, newApiBranch(path, []*RpApi[Rp]{})))
 				}
 			}
-			// original remain should directly insert
-			fills = append(fills, util.NewTuple2(remain.Path, remain))
+			// If the API already exists in `fills` and `.Apis` is empty, then need to replace with the valid API.
+			if index := slices.IndexFunc(fills, func(tuple util.Tuple2[string, ApiBranch[Rp]]) bool {
+				return tuple.A == remain.Path && len(tuple.B.Apis) == 0
+			}); index > -1 {
+				fills[index] = util.NewTuple2(remain.Path, remain)
+			} else {
+				// Original remain should directly insert
+				fills = append(fills, util.NewTuple2(remain.Path, remain))
+			}
 		}
 		for _, fill := range fills {
 			_, _ = tree.SetByPath(strings.Split(fill.A, MarkPathPartSeparator), fill.B)
@@ -268,13 +275,13 @@ func (r *Router[Rp]) locate(path string, apiFinder func([]*RpApi[Rp]) (*RpApi[Rp
 		}
 		return nil, nil, nil, util.Openly(CodeNotFound, `path "%s" route failed, could not matched by Router`, path)
 	}
-	slog.Debug(`%s: path "%s" matched api "%s"`, reflect.TypeFor[Rp](), reqPath, api.Path)
+	slog.Debug(fmt.Sprintf(`%s: path "%s" matched api "%s"`, reflect.TypeFor[Rp](), reqPath, api.Path))
 	return api, pathParams, suffix, nil
 }
 
 func (r *Router[Rp]) matchVarPath(path string) (string, map[string]Param, *Suffix, bool) {
 	pathParts := strings.Split(path, r.pathPartSeparator)
-	loopItems := []util.Tuple2[*util.Tree[ApiBranch[Rp], string], int]{{&r.apisTree, 0}}
+	loopItems := []util.Tuple2[*util.Tree[ApiBranch[Rp], string], int]{util.NewTuple2(&r.apisTree, 0)}
 	pathParams := map[string]Param{}
 	var targetApiBranch *util.Tree[ApiBranch[Rp], string]
 	var suffix *Suffix
@@ -423,7 +430,7 @@ func (r *Router[Rp]) routedHandle(api *RpApi[Rp], pathParams map[string]Param, s
 
 func (r *Router[Rp]) idLocate(id string) (*RpApi[Rp], error) {
 	if api, ok := r.idApiMapping[id]; ok {
-		slog.Debug(`%s: Uid "%s" matched api "%s"`, reflect.TypeFor[Rp](), id, api.Path)
+		slog.Debug(fmt.Sprintf(`%s: Uid "%s" matched api "%s"`, reflect.TypeFor[Rp](), id, api.Path))
 		return api, nil
 	}
 	return nil, util.Openly(CodeNotFound, `Uid "%s" route failed, could not matched by Router`, id)

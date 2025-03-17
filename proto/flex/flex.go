@@ -2,14 +2,15 @@ package flex
 
 import (
 	"bufio"
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/util"
 	"io"
 	"math"
 	"math/bits"
 	"net"
 	"slices"
 	"sync/atomic"
+
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/util"
 )
 
 type PackageProtocol[Req any] struct {

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/idrunk/dce-go/_examples/apis"
-	"github.com/idrunk/dce-go/proto"
+	"go.drunkce.com/dce/_examples/apis"
+	"go.drunkce.com/dce/proto"
 )
 
 func main() {

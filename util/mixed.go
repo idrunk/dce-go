@@ -3,6 +3,7 @@ package util
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 )
@@ -83,5 +84,14 @@ func Iif[T any](test bool, trueVal T, falseVal T) T {
 
 func NewStruct[T any]() T {
 	var t T
-	return t
+	ty := reflect.TypeOf(t)
+	if ty.Kind() != reflect.Ptr {
+		return t
+	}
+	v := reflect.New(ty.Elem())
+	return v.Interface().(T)
+}
+
+func Ref[T any](v T) *T {
+	return &v
 }

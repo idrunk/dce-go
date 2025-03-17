@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/idrunk/dce-go/session"
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/session"
+	"go.drunkce.com/dce/util"
 )
 
 const (
@@ -56,7 +56,7 @@ func (m *Meta[Req]) ClearBuffer() []byte {
 	return bs
 }
 
-func (m *Meta[Req]) NotResponse() bool {
+func (m *Meta[Req]) ResponseEmpty() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.respBuffer.Len() == 0

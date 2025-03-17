@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 const DefaultIdName = "dcesid"
@@ -99,7 +99,7 @@ func GenSid(ttlMinutes uint16) (sid string, createStamp int64) {
 	now := time.Now()
 	hash := sha256.New()
 	hash.Write([]byte(fmt.Sprintf("%d-%d", now.UnixNano(), rand.Uint())))
-	return fmt.Sprintf("%X%04X%X", hash.Sum(nil), ttlMinutes, now.Unix()), now.Unix()
+	return fmt.Sprintf("%x%04x%x", hash.Sum(nil), ttlMinutes, now.Unix()), now.Unix()
 }
 
 func (b *BasicSession) CloneBasic(cloned IfSession, id string) (*BasicSession, error) {
@@ -142,10 +142,10 @@ func (b *BasicSession) Set(field string, value any) error {
 	val, err := TryMarshal(value, b.IfSession.NeedSerial())
 	if err != nil {
 		return err
-	} else if err := b.TryTouch(); err != nil {
+	} else if err := b.SilentSet(field, val); err != nil {
 		return err
 	}
-	return b.SilentSet(field, val)
+	return b.TryTouch()
 }
 
 func (b *BasicSession) Get(field string, target any) error {

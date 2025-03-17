@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/idrunk/dce-go/proto"
 	"github.com/quic-go/quic-go/http3"
+	"go.drunkce.com/dce/proto"
 )
 
 func init() {

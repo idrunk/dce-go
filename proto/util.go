@@ -1,10 +1,12 @@
 package proto
 
 import (
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/util"
+	"fmt"
 	"log/slog"
 	"sync"
+
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/util"
 )
 
 func NewConnectorMappingManager[Rp router.RoutableProtocol, C any](routerId string) ConnectorMappingManager[Rp, C] {
@@ -28,7 +30,7 @@ func (w *ConnectorMappingManager[Rp, C]) Unmapping(addr string) {
 
 func (w *ConnectorMappingManager[Rp, C]) Except(addr string, err error) bool {
 	w.Unmapping(addr)
-	slog.Debug("Client disconnected with: %s", err.Error())
+	slog.Debug(fmt.Sprintf("Client disconnected with: %s", err.Error()))
 	return false
 }
 

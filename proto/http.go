@@ -2,14 +2,15 @@ package proto
 
 import (
 	"errors"
-	"github.com/idrunk/dce-go/router"
-	"github.com/idrunk/dce-go/util"
 	"io"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"go.drunkce.com/dce/router"
+	"go.drunkce.com/dce/util"
 )
 
 var (
@@ -26,7 +27,7 @@ var (
 
 type Http = router.Context[*HttpProtocol]
 
-const headerSidKey = "X-Session-Id"
+const HeaderSidKey = "X-Session-Id"
 
 type HttpProtocol struct {
 	router.Meta[*http.Request]
@@ -65,13 +66,15 @@ func (h *HttpProtocol) Body() ([]byte, error) {
 	return io.ReadAll(h.Req.Body)
 }
 
+var headerSidKey string = strings.ToLower(HeaderSidKey)
+
 func (h *HttpProtocol) Sid() string {
-	if headerSid := h.Req.Header.Get(headerSidKey); len(headerSid) > 0 {
+	if headerSid := h.Req.Header.Get(HeaderSidKey); len(headerSid) > 0 {
 		return headerSid
 	} else if cookies := h.Req.Cookies(); len(cookies) > 0 {
 		if cookie, ok := util.SeqFrom(cookies).Find(func(c *http.Cookie) bool {
 			lower := strings.ToLower((*c).Name)
-			return lower == "session_id" || lower == "session-id" || lower == "x-session-sid"
+			return lower == "session_id" || lower == "session-id" || lower == headerSidKey
 		}); ok {
 			return (*cookie).Value
 		}
@@ -153,10 +156,7 @@ func (h *WrappedHttpRouter) PushApi(api router.Api, controller func(c *Http)) *W
 }
 
 func (h *WrappedHttpRouter) Route(writer http.ResponseWriter, request *http.Request) {
-	hp := &HttpProtocol{
-		Meta:   router.NewMeta(request, nil, false),
-		Writer: writer,
-	}
+	hp := NewHttpProtocol(writer, request)
 	context := router.NewContext(hp)
 	h.Raw().Route(context)
 	hp.TryPrintErr()
@@ -165,18 +165,25 @@ func (h *WrappedHttpRouter) Route(writer http.ResponseWriter, request *http.Requ
 	}
 	if hp.Error() != nil {
 		var e util.Error
-		if errors.As(hp.Error(), &e) && e.IsOpenly() && e.Code < 600 {
-			hp.Writer.WriteHeader(e.Code)
-		} else {
+		if !errors.As(hp.Error(), &e) {
 			hp.Writer.WriteHeader(util.ServiceUnavailable)
+		} else if ! e.IsOpenly() || hp.ResponseEmpty() {
+			hp.Writer.WriteHeader(util.Iif(e.Code > 0 && e.Code < 600, e.Code, util.ServiceUnavailable))
 		}
 	}
 	if sid := hp.RespSid(); sid != "" {
-		hp.Writer.Header().Set(headerSidKey, sid)
+		hp.Writer.Header().Set(HeaderSidKey, sid)
 	}
 	bytes := hp.ClearBuffer()
 	if _, err := hp.Writer.Write(bytes); err != nil {
 		println(err.Error())
+	}
+}
+
+func NewHttpProtocol(writer http.ResponseWriter, request *http.Request) *HttpProtocol {
+	return &HttpProtocol{
+		Meta:   router.NewMeta(request, nil, false),
+		Writer: writer,
 	}
 }
 

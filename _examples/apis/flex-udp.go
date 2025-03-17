@@ -4,15 +4,16 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"fmt"
-	"github.com/idrunk/dce-go/proto"
-	"github.com/idrunk/dce-go/proto/flex"
-	"github.com/idrunk/dce-go/router"
 	"log"
 	"log/slog"
 	"math/rand/v2"
 	"net"
 	"strconv"
 	"strings"
+
+	"go.drunkce.com/dce/proto"
+	"go.drunkce.com/dce/proto/flex"
+	"go.drunkce.com/dce/router"
 )
 
 func FlexUdpStart(c *proto.Cli) {

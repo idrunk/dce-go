@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/idrunk/dce-go/util"
+	"go.drunkce.com/dce/util"
 )
 
 // Context is a generic struct that encapsulates the state and functionality for handling RoutableProtocol requests.
@@ -47,6 +47,13 @@ func (c *Context[Rp]) Param(key string) string {
 		return param.Value()
 	}
 	return ""
+}
+
+func (c *Context[Rp]) ParamOr(key string, def string) string {
+	if param, ok := c.params[key]; ok {
+		return param.Value()
+	}
+	return def
 }
 
 func (c *Context[Rp]) Params(key string) []string {

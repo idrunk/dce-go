@@ -2,9 +2,10 @@ package json
 
 import (
 	"encoding/json"
-	"github.com/idrunk/dce-go/router"
 	"math"
 	"sync/atomic"
+
+	"go.drunkce.com/dce/router"
 )
 
 type PackageProtocol[Req any] struct {
