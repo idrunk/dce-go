@@ -3,11 +3,14 @@ package flex
 import (
 	"bufio"
 	"io"
+	"log"
 	"math"
 	"math/bits"
 	"net"
+	"reflect"
 	"slices"
 	"sync/atomic"
+	"unsafe"
 
 	"go.drunkce.com/dce/router"
 	"go.drunkce.com/dce/util"
@@ -54,15 +57,78 @@ func NewPackageProtocolWithMeta[Req any](reader *bufio.Reader, meta router.Meta[
 	return &PackageProtocol[Req]{meta, pkg}, nil
 }
 
-const (
-	flagId uint8 = 128 >> iota
-	flagPath
-	flagSid
-	flagCode
-	flagMsg
-	flagBody
-	flagNumPath
-)
+type PackageField struct {
+	Field string
+	Kind reflect.Kind
+	Get func(fc *PackageField, pkg *reflect.Value) (numHead *NumHead, textSeq []byte)
+	Set func(fc *PackageField, pkg *reflect.Value, nh *NumHead, nbSeq []byte, reader io.Reader) (err error)
+}
+
+func DefaultPropertyGetter(fc *PackageField, pkg *reflect.Value) (numHead *NumHead, textSeq []byte) {
+	val := pkg.FieldByName(fc.Field)
+	if val.IsZero() {
+		// if (field.Required) {
+		// 	log.Panicf("%s is required in Package.", field.Field)
+		// }
+		return
+	}
+
+	if fc.Kind >= reflect.Int && fc.Kind < reflect.Uint { // int
+		numHead = IntPackHead(val.Int())
+	} else if fc.Kind >= reflect.Uint && fc.Kind <= reflect.Uint64 { // uint
+		numHead = UintPackHead(val.Uint())
+	} else if fc.Kind == reflect.String { // string
+		str := val.String()
+		numHead = Non0LenPackHead(uint(len(str)))
+		textSeq = []byte(str)
+	} else if bts, ok := val.Interface().([]byte); ok { // []byte
+		numHead = Non0LenPackHead(uint(len(bts)))
+		textSeq = bts
+	}
+	return
+}
+
+func DefaultPropertySetter(fc *PackageField, pkg *reflect.Value, nh *NumHead, nbSeq []byte, reader io.Reader) (err error) {
+	tyRef := pkg.Type()
+	f, ok := tyRef.FieldByName(fc.Field)
+	if !ok {
+		log.Fatalf(`Field "%s" not defined in Package`, fc.Field)
+	}
+	field := pkg.FieldByIndex(f.Index)
+	switch fc.Kind {
+	case reflect.String, reflect.Slice:
+		len := Non0LenParse(nh.Original, nbSeq)
+		if fc.Kind == reflect.String {
+			seq := make([]byte, len)
+			if _, err = io.ReadFull(reader, seq); err != nil {
+				return err
+			}
+			field.SetString(string(seq))
+		} else if fc.Field == "Body" { // Hard-coding for `Body`
+			blf := pkg.FieldByName("bodyLen")
+			ptr := unsafe.Pointer(blf.UnsafeAddr())
+			realPtr := (*uint64)(ptr)
+			*realPtr = len
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val := IntParse(nh.Negative, nh.Unsigned, nbSeq)
+		field.SetInt(val)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val := UintParse(nh.Original, nbSeq)
+		field.SetUint(val)
+	}
+	return nil
+}
+
+var baseFields = []*PackageField{
+	{"Id", reflect.Uint32, DefaultPropertyGetter, DefaultPropertySetter},
+	{"Path", reflect.String, DefaultPropertyGetter, DefaultPropertySetter},
+	{"NumPath", reflect.Uint32, DefaultPropertyGetter, DefaultPropertySetter},
+	{"Sid", reflect.String, DefaultPropertyGetter, DefaultPropertySetter},
+	{"Code", reflect.Int32, DefaultPropertyGetter, DefaultPropertySetter},
+	{"Message", reflect.String, DefaultPropertyGetter, DefaultPropertySetter},
+	{"Body", reflect.Slice, DefaultPropertyGetter, DefaultPropertySetter},
+}
 
 type Package struct {
 	Id      uint32
@@ -77,51 +143,59 @@ type Package struct {
 }
 
 func (p *Package) Serialize() []byte {
-	// Init a seq buffer and set flag byte to 0
-	buffer := make([]byte, 1, 512)
-	textBuffer := make([][]byte, 0, 4)
-	lenSeqInfoVec := make([]util.Tuple4[byte, int, int, uint], 0, 8)
-	// Fill protocol headFlags and pack FlexNum head, cache text contents
-	if length := len(p.Path); length > 0 {
-		buffer[0] |= flagPath
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(uint16(length))))
-		textBuffer = append(textBuffer, []byte(p.Path))
+	return p.SerializeWith(nil, nil)
+}
+
+func (p *Package) mergeFields(fields []*PackageField, pkg *reflect.Value) []*util.Tuple2[*PackageField, *reflect.Value] {
+	pe := reflect.ValueOf(p).Elem()
+	fullFields := make([]*util.Tuple2[*PackageField, *reflect.Value], 0, len(baseFields))
+	for _, f := range baseFields {
+		fullFields = append(fullFields, util.NewTuple2(f, &pe))
 	}
-	if length := len(p.Sid); length > 0 {
-		buffer[0] |= flagSid
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(uint16(length))))
-		textBuffer = append(textBuffer, []byte(p.Sid))
+	if fields != nil && pkg != nil {
+		for _, f := range fields {
+			fullFields = append(fullFields, util.NewTuple2(f, pkg))
+		}
 	}
-	if length := len(p.Message); length > 0 {
-		buffer[0] |= flagMsg
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(uint16(length))))
-		textBuffer = append(textBuffer, []byte(p.Message))
+	return fullFields
+}
+
+func (p *Package) SerializeWith(fields []*PackageField, pkg *reflect.Value) []byte {
+	fullFields := p.mergeFields(fields, pkg)
+	flag := 0
+	totalFields := len(fullFields)
+	numHeadVec := make([]*NumHead, 0, totalFields + 1)
+	textBuffer := make([][]byte, 0, totalFields - 4) // 容量为减掉至少4个非文本的字段数
+	bodyBuffer := make([][]byte, 0, 1)
+	for i, t2 := range fullFields {
+		numHead, textSeq := t2.A.Get(t2.A, t2.B);
+		if numHead == nil {
+			continue
+		}
+		flag |= 1 << i
+		numHeadVec = append(numHeadVec, numHead)
+		if t2.A.Kind == reflect.Slice {
+			bodyBuffer = append(bodyBuffer, textSeq)
+		} else if len(textSeq) > 0 {
+			textBuffer = append(textBuffer, textSeq)
+		}
 	}
-	if length := len(p.Body); length > 0 {
-		buffer[0] |= flagBody
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(uint(length))))
-		textBuffer = append(textBuffer, p.Body)
-	}
-	if p.Id > 0 {
-		buffer[0] |= flagId
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(p.Id)))
-	}
-	if p.Code != 0 {
-		buffer[0] |= flagCode
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(IntPackHead(p.Code)))
-	}
-	if p.NumPath > 0 {
-		buffer[0] |= flagNumPath
-		lenSeqInfoVec = append(lenSeqInfoVec, util.NewTuple4(Non0LenPackHead(p.NumPath)))
-	}
+
+	flagSeq := UintSerialize(uint(flag))
+	flagLen := len(flagSeq)
+	buffer := make([]byte, flagLen, 512)
+	copy(buffer, flagSeq)
 	// Fill FlexNum heads and pack and fill FlexNum body
-	buffer = buffer[:1+len(lenSeqInfoVec)]
-	for i, lenSeqInfo := range lenSeqInfoVec {
-		buffer[1+i] = lenSeqInfo.A
-		buffer = append(buffer, NumPackBody(lenSeqInfo.D, lenSeqInfo.C, lenSeqInfo.B)...)
+	buffer = buffer[:flagLen+len(numHeadVec)]
+	for i, nh := range numHeadVec {
+		buffer[flagLen+i] = nh.Head
+		buffer = append(buffer, NumPackBody(nh)...)
 	}
 	// Append the text contents
 	for _, part := range textBuffer {
+		buffer = append(buffer, part...)
+	}
+	for _, part := range bodyBuffer {
 		buffer = append(buffer, part...)
 	}
 	return buffer
@@ -135,84 +209,6 @@ func (p *Package) parseBody() ([]byte, error) {
 	return body, nil
 }
 
-func PackageDeserializeHead(reader *bufio.Reader) (*Package, error) {
-	// Try read flag
-	flag, err := reader.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	// Count the FlexNum and init a numHead bytes container
-	var numHeadSeq = make([]byte, bits.OnesCount8(flag))
-	if _, err = reader.Read(numHeadSeq); err != nil {
-		return nil, err
-	}
-	var numInfoSeq = make([]util.Tuple5[byte, uint8, bool, byte, []byte], len(numHeadSeq))
-	// Parse the FlexNum head and total the FlexNum body len
-	for i, numHead := range numHeadSeq {
-		unsignedBits, bytesLen, negative, originalBits := NumParseHead(numHead, true)
-		// Read FlexNum bodies
-		var numBodySeq = make([]byte, bytesLen)
-		if _, err = reader.Read(numBodySeq); err != nil {
-			return nil, err
-		}
-		numInfoSeq[i] = util.NewTuple5(unsignedBits, bytesLen, negative, originalBits, numBodySeq)
-	}
-	pkg := Package{reader: reader}
-	// Finally number parse and read text seq
-	if flag&flagPath > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		seq := make([]byte, Non0LenParse(numInfo[0].D, numInfo[0].E))
-		if _, err = io.ReadFull(reader, seq); err != nil {
-			return nil, err
-		}
-		pkg.Path = string(seq)
-	}
-	if flag&flagSid > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		seq := make([]byte, Non0LenParse(numInfo[0].D, numInfo[0].E))
-		if _, err = io.ReadFull(reader, seq); err != nil {
-			return nil, err
-		}
-		pkg.Sid = string(seq)
-	}
-	if flag&flagMsg > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		seq := make([]byte, Non0LenParse(numInfo[0].D, numInfo[0].E))
-		if _, err = io.ReadFull(reader, seq); err != nil {
-			return nil, err
-		}
-		pkg.Message = string(seq)
-	}
-	if flag&flagBody > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		pkg.bodyLen = Non0LenParse(numInfo[0].D, numInfo[0].E)
-	}
-	if flag&flagId > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		pkg.Id = uint32(Non0LenParse(numInfo[0].D, numInfo[0].E))
-	}
-	if flag&flagCode > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		pkg.Code = IntParse[int32](numInfo[0].C, numInfo[0].A, numInfo[0].E)
-	}
-	if flag&flagNumPath > 0 {
-		numInfo, _ := util.SliceDeleteGet(&numInfoSeq, 0, 1)
-		pkg.NumPath = uint32(Non0LenParse(numInfo[0].D, numInfo[0].E))
-	}
-	return &pkg, nil
-}
-
-func PackageDeserialize(reader *bufio.Reader) (*Package, error) {
-	sp, err := PackageDeserializeHead(reader)
-	if err != nil {
-		return nil, err
-	} else if b, e := sp.parseBody(); e != nil {
-		return nil, e
-	} else {
-		sp.Body = b
-		return sp, nil
-	}
-}
 
 var reqId atomic.Uint32
 
@@ -230,142 +226,73 @@ func NewNumPackage(numPath uint32, body []byte, sid string, id int, path string)
 	return &Package{Id: uint32(id), Path: path, NumPath: numPath, Sid: sid, Body: body}
 }
 
-func UintSerialize[U uint | uint64 | uint32 | uint16 | uint8](unsigned U) []byte {
-	return numSerialize(UintPackHead(unsigned))
+func PackageDeserializeHead(reader *bufio.Reader) (*Package, error) {
+	return PackageDeserializeHeadWith(reader, nil, nil)
 }
 
-func IntSerialize[I int | int64 | int32 | int16 | int8](integer I) []byte {
-	return numSerialize(IntPackHead(integer))
+func PackageDeserializeHeadWith(reader *bufio.Reader, fields []*PackageField, pkg *reflect.Value) (*Package, error) {
+	// Try read flagHead
+	head, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	nh := NumParseHead(head, false)
+	flag := uint64(nh.Original)
+	if nh.BytesLen > 0 {
+		var flagBodySeq = make([]byte, nh.BytesLen)
+		if _, err = reader.Read(flagBodySeq); err != nil {
+			return nil, err
+		}
+		flagBodySeq = slices.Insert(flagBodySeq, 0, nh.Original)
+		flag = NumParse(flagBodySeq)
+	}
+
+	// Count the FlexNum and init a numHead bytes container
+	headOnesCount := bits.OnesCount64(flag)
+	numHeadList := make([]byte, headOnesCount)
+	if _, err = reader.Read(numHeadList); err != nil {
+		return nil, err
+	}
+	numInfoList := make([]*util.Tuple3[int, *NumHead, []byte], headOnesCount)
+	nhi := 0
+	bitsLen := bits.Len64(flag)
+	for i := range bitsLen {
+		if 1 << i & flag == 0 {
+			continue // Directly continue if current bit is zero
+		}
+		nh := NumParseHead(numHeadList[nhi], true)
+		// Read FlexNum bodies
+		var numBodySeq = make([]byte, nh.BytesLen)
+		if _, err = reader.Read(numBodySeq); err != nil {
+			return nil, err
+		}
+		numInfoList[nhi] = util.NewTuple3(i, nh, numBodySeq)
+		nhi ++
+	}
+
+	p := &Package{reader: reader}
+	pkgRef := reflect.ValueOf(p).Elem()
+	fullFields := p.mergeFields(fields, &pkgRef)
+	if bitsLen > len(fullFields) {
+		return nil, util.Closed0(`Packet exception, flag overflow`)
+	}
+	for _, ni := range numInfoList {
+		fc := fullFields[ni.A]
+		fc.A.Set(fc.A, fc.B, ni.B, ni.C, reader)
+	}
+	return p, nil
 }
 
-// Non0LenPackHead can package 128 into uint7 to represent the length of sha512 in hexadecimal
-func Non0LenPackHead[U uint | uint64 | uint32 | uint16 | uint8](unsigned U) (head byte, bytesLen int, bitsLen int, usize uint) {
-	return UintPackHead(unsigned - 1)
-}
-
-func UintPackHead[U uint | uint64 | uint32 | uint16 | uint8](unsigned U) (head byte, bytesLen int, bitsLen int, usize uint) {
-	usize = uint(unsigned)
-	bitsLen = bits.Len(usize)
-	head, bytesLen = numPackHead(usize, bitsLen)
-	return head, bytesLen, bitsLen, usize
-}
-
-func IntPackHead[I int | int64 | int32 | int16 | int8](integer I) (byte, int, int, uint) {
-	var unsigned uint
-	if integer < 0 {
-		// use -int to resolve the edge case, eg. int8(-128) to int8(128) is illegal, but to int(128) is legal.
-		// but the int(math.MinInt) to -int(math.MinInt) may still illegal, but it is unlikely to be used.
-		unsigned = uint(-int(integer))
+func PackageDeserialize(reader *bufio.Reader) (*Package, error) {
+	sp, err := PackageDeserializeHead(reader)
+	if err != nil {
+		return nil, err
+	} else if b, e := sp.parseBody(); e != nil {
+		return nil, e
 	} else {
-		unsigned = uint(integer)
+		sp.Body = b
+		return sp, nil
 	}
-	// add the width of the sign
-	bitsLen := bits.Len(unsigned) + 1
-	head, bytesLen := numPackHead(unsigned, bitsLen)
-	if integer < 0 {
-		var negative uint8 = 1
-		if bytesLen < 7 {
-			negative = 1 << (6 - bytesLen)
-		}
-		// handle the negative situation to mark the sign bit
-		head |= negative
-	}
-	return head, bytesLen, bitsLen, unsigned
-}
-
-func numPackHead[U uint | uint64 | uint32 | uint16 | uint8](u64 U, bitsLen int) (byte, int) {
-	bytesLen := int(math.Floor(float64(bitsLen) / 8))
-	headMaskShift := 8 - bytesLen
-	var headBits uint8
-	if bytesLen > 5 {
-		// Directly alloc 8bytes if the requirement greater than 5
-		bytesLen = 8
-		headMaskShift = 2
-	} else if bitsLen%8 > 7-bytesLen {
-		// If the remains bits width than the headBits, then need to increase the bytes length,
-		// and decrease the maskShift to match the body byte length.
-		// When bytesLen updated, the head no longer needs to be stored any bits, just need to keep the default
-		bytesLen++
-		headMaskShift--
-	} else {
-		// Otherwise, right shift the bodyBytesLen to calc out the headBits
-		headBits |= uint8(u64 >> (bytesLen * 8))
-	}
-	return 255<<headMaskShift&255 | headBits, bytesLen
-}
-
-func numSerialize[U uint | uint64 | uint32 | uint16 | uint8](head uint8, bytesLen int, bitsLen int, u64 U) []byte {
-	units := make([]byte, bytesLen+1)
-	units[0] = head
-	copy(units[1:], NumPackBody(u64, bitsLen, bytesLen))
-	return units
-}
-
-func NumPackBody[U uint | uint64 | uint32 | uint16 | uint8](u64 U, bitsLen int, bytesLen int) []byte {
-	units := make([]byte, bytesLen)
-	for i := 0; i < bytesLen && i*8 < bitsLen; i++ {
-		units[bytesLen-i-1] = uint8(u64 >> (i * 8) & 255)
-	}
-	return units
-}
-
-func UintDeserialize[U uint | uint64 | uint32 | uint16 | uint8](seq []byte) U {
-	seq[0], _, _, _ = NumParseHead(seq[0], false)
-	return U(NumParse(seq))
-}
-
-func IntDeserialize[I int | int64 | int32 | int16 | int8](seq []byte) I {
-	headBits, _, negative, _ := NumParseHead(seq[0], true)
-	return IntParse[I](negative, headBits, seq[1:])
-}
-
-func NumParseHead(head byte, sign bool) (unsignedBits byte, bytesLen uint8, negative bool, originalBits byte) {
-	for i := 0; i < 8; i++ {
-		if 128>>i&head == 0 {
-			if bytesLen = uint8(i); bytesLen > 5 {
-				bytesLen = 8
-				originalBits = 1 & head
-			} else {
-				originalBits = 127 >> bytesLen & head
-			}
-			break
-		}
-	}
-	unsignedBits = originalBits
-	if sign {
-		if bytesLen == 8 {
-			negative = 1&head == 1
-		} else {
-			signShift := 0
-			if negative = 64>>bytesLen&head > 0; negative {
-				signShift = 1
-			}
-			unsignedBits = 127 >> bytesLen >> signShift & head
-		}
-	}
-	return unsignedBits, bytesLen, negative, originalBits
-}
-
-func IntParse[I int | int64 | int32 | int16 | int8](negative bool, head uint8, seq []byte) I {
-	u64 := NumParse(slices.Insert(seq, 0, head))
-	if negative {
-		return I(-int64(u64))
-	}
-	return I(u64)
-}
-
-func Non0LenParse(head uint8, seq []byte) uint64 {
-	return NumParse(slices.Insert(seq, 0, head)) + 1
-}
-
-func NumParse(seq []byte) uint64 {
-	var u64 uint64 = 0
-	for i, b := range seq {
-		if b > 0 {
-			u64 |= uint64(b) << ((len(seq) - i - 1) * 8)
-		}
-	}
-	return u64
 }
 
 func StreamRead(conn net.Conn) ([]byte, error) {
@@ -374,12 +301,12 @@ func StreamRead(conn net.Conn) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, bytesLen, _, headBits := NumParseHead(numHead, false)
-	numBody := make([]byte, bytesLen)
+	nh := NumParseHead(numHead, false)
+	numBody := make([]byte, nh.BytesLen)
 	if _, err = reader.Read(numBody); err != nil {
 		return nil, err
 	}
-	var data = make([]byte, Non0LenParse(headBits, numBody))
+	var data = make([]byte, Non0LenParse(nh.Head, numBody))
 	if _, err = io.ReadFull(reader, data); err != nil {
 		return data, err
 	}
@@ -387,6 +314,6 @@ func StreamRead(conn net.Conn) ([]byte, error) {
 }
 
 func StreamPack(bytes []byte) []byte {
-	head, bytesLen, bitsLen, usize := Non0LenPackHead(uint(len(bytes)))
-	return slices.Insert(bytes, 0, slices.Insert(NumPackBody(usize, bitsLen, bytesLen), 0, head)...)
+	nh := Non0LenPackHead(uint(len(bytes)))
+	return slices.Insert(bytes, 0, slices.Insert(NumPackBody(nh), 0, nh.Head)...)
 }

@@ -13,12 +13,12 @@ import (
 )
 
 func TestPackage_Serialize(t *testing.T) {
-	Body := []byte(strings.Repeat("Hello world!你好，世界！", rand.IntN(1000)))
+	body := []byte(strings.Repeat("Hello world!你好，世界！", rand.IntN(1000)))
 	hash := md5.New()
-	hash.Write(Body)
+	hash.Write(body)
 	srcHash := hex.EncodeToString(hash.Sum(nil))
 	t.Logf("Source content hash: %s", srcHash)
-	pkg := NewPackage("home", Body, srcHash, -1)
+	pkg := NewPackage("home", body, srcHash, -1)
 	seq := pkg.Serialize()
 	dePkg, _ := PackageDeserialize(bufio.NewReader(bytes.NewReader(seq)))
 	hash2 := md5.New()

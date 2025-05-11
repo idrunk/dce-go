@@ -109,7 +109,7 @@ func flexWebsocketBind(port string) {
 		_, _ = w.Write([]byte{'1'})
 	})
 
-	flex.WebsocketRouter.SetEventHandler(func(ctx *flex.Websocket) error {
+	flex.WebsocketRouter.SetBefore("*", func(ctx *flex.Websocket) error {
 		shadowSession, _ := ctx.Rp.CtxData("$shadowSession")
 		rs := shadowSession.(*session.ShmSession[*session.SimpleUser])
 		cloned, _ := rs.CloneForRequest(ctx.Rp.Sid())
@@ -123,7 +123,7 @@ func flexWebsocketBind(port string) {
 			ctx.Rp.SetRespSid(sess.Id())
 		}
 		return nil
-	}, nil)
+	})
 }
 
 func syncUserList(sess *session.ShmSession[*session.SimpleUser], h *proto.Http, user *session.SimpleUser) {

@@ -17,7 +17,7 @@ type Context[Rp RoutableProtocol] struct {
 	Rp     Rp
 	Api    *RpApi[Rp]
 	router *Router[Rp]
-	suffix util.Tuple2[*Suffix, bool]
+	suffix *util.Tuple2[*Suffix, bool]
 	params map[string]Param
 }
 

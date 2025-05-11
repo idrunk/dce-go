@@ -28,15 +28,18 @@ DCE is committed to building an efficient, open, and secure universal routing li
 ---
 
 **TODO**:
-- [ ] Optimize the JS version of the WebSocket routable protocol client.
-- [ ] Upgrade the controller pre- and post-event interfaces to support binding with program interfaces.
+- [x] Optimize the JS version of the WebSocket routable protocol client. (Temporarily shelved, refer to the implementation in the `easy-tools` repository)
+- [x] Upgrade the controller pre- and post-event interfaces to support binding with program interfaces.
 - [ ] Enhance support for digital paths.
-- [ ] Refactor elastic numeric functions into structural method styles.
-- [ ] Investigate the possibility of supporting custom business attributes in routable protocols.
-- [ ] Routable protocol support very large data packets such as file uploads.
+- [x] Refactor elastic numeric functions into structural method styles. (Canceled)
+- [x] Investigate the possibility of supporting custom business attributes in routable protocols. (Implemented)
+- [x] Routable protocol support very large data packets such as file uploads. (Temporarily shelved, refer to the implementation in the `easy-tools` repository)
 - [ ] Upgrade the feature version of DCE-RUST.
-- [ ] Improve the Golang client implementations for various protocols.
+- [x] Improve the Golang client implementations for various protocols. (Canceled)
 - [ ] Gradually replace AI-generated documentation with manually written documentation.
+- [ ] Api extension attributes support inheritance.
+
+*Due to work reasons and not knowing of any actual users of this framework, the author does not plan to develop new features, including all the TODOs listed above. Development will resume later if the author has personal needs or if there is a certain number of user demands. Bug fixes will be prioritized over new feature development. If you recognize this project and want to promote its development, collaboration and external promotion are welcome.*
 
 ---
 
@@ -146,7 +149,7 @@ func bindServer() {
 		jc.Response(member)
 	})
 
-	flex.TcpRouter.SetEventHandler(func(c *flex.Tcp) error {
+	flex.TcpRouter.SetBefore("*", func(c *flex.Tcp) error {
 		shadow, _ := c.Rp.CtxData("$shadowSession")
 		rs := shadow.(*session.ShmSession[*Member])
 		cloned, err := rs.CloneForRequest(c.Rp.Sid())
@@ -171,7 +174,7 @@ func bindServer() {
 		}
 		c.Rp.SetSession(se)
 		return nil
-	}, nil)
+	})
 }
 
 func bindClient() {

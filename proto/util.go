@@ -48,10 +48,10 @@ func (w *ConnectorMappingManager[Rp, C]) ConnMapping() map[string]C {
 	return cm
 }
 
-func (w *ConnectorMappingManager[Rp, C]) ListBy(filter func(s string) bool) []util.Tuple2[string, C] {
-	return util.MapSeq2From[string, C, util.Tuple2[string, C]](w.ConnMapping()).Filter2(func(s string, _ C) bool {
+func (w *ConnectorMappingManager[Rp, C]) ListBy(filter func(s string) bool) []*util.Tuple2[string, C] {
+	return util.MapSeq2From[string, C, *util.Tuple2[string, C]](w.ConnMapping()).Filter2(func(s string, _ C) bool {
 		return filter(s)
-	}).Map2(func(addr string, conn C) util.Tuple2[string, C] {
+	}).Map2(func(addr string, conn C) *util.Tuple2[string, C] {
 		return util.NewTuple2(addr, conn)
 	}).Collect()
 }

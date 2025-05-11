@@ -128,7 +128,8 @@ func bind() {
 		},
 	)
 
-	proto.HttpRouter.Raw().SetEventHandler(func(ctx *router.Context[*proto.HttpProtocol]) error {
+	proto.HttpRouter.Raw().
+	SetBefore("*", func(ctx *router.Context[*proto.HttpProtocol]) error {
 		sess, err := redises.NewSession[*Member](Rdb, []string{ctx.Rp.Sid()}, session.DefaultTtlMinutes)
 		if err != nil {
 			return err
@@ -148,7 +149,8 @@ func bind() {
 		}
 		ctx.Rp.SetSession(sess)
 		return nil
-	}, func(ctx *router.Context[*proto.HttpProtocol]) error {
+	}).
+	SetAfter("*", func(ctx *router.Context[*proto.HttpProtocol]) error {
 		if newSid := ctx.Rp.RespSid(); newSid != "" {
 			_, _ = ctx.Rp.WriteString(fmt.Sprintf("\n\nGot new sid, you can use it to access private page:\n%s", newSid))
 		}

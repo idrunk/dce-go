@@ -30,16 +30,15 @@ func HttpStart(c *proto.Cli) {
 			Method:   proto.HttpGet,
 			Omission: true,
 		}, home).
-		Raw().SetEventHandler(func(ctx *router.Context[*proto.HttpProtocol]) error {
-		if ctx.Api.Path == "session/{username?}" {
+		Raw().
+		SetBefore("session/{username?}", func(ctx *router.Context[*proto.HttpProtocol]) error {
 			if username := ctx.Param("username"); len(username) > 0 {
 				ctx.Rp.SetCtxData("hello", "Inject from [BeforeController]")
 			} else {
 				return util.Openly(401, "Need to login")
 			}
-		}
-		return nil
-	}, nil)
+			return nil
+		})
 
 	port := c.Rp.ArgOr("-p", "2046")
 	fmt.Printf("Http server is starting on port %s\n", port)

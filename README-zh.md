@@ -28,15 +28,18 @@ DCE 致力于打造一个高效、开放、安全的通用路由库，欢迎社�
 ---
 
 **TODO**：
-- [ ] 优化 JS 版 WebSocket 可路由协议客户端。
-- [ ] 升级控制器前后置事件接口，支持与程序接口绑定。
+- [x] 优化 JS 版 WebSocket 可路由协议客户端。（暂时搁置，可参见`easy-tools`库的实现）
+- [x] 升级控制器前后置事件接口，支持与程序接口绑定。
 - [ ] 完善数字路径支持。
-- [ ] 调整弹性数字函数为结构方法式。
-- [ ] 研究可路由协议中支持自定义业务属性的可能性。
-- [ ] 支持文件上传等超大数据包的可路由协议。
+- [x] 调整弹性数字函数为结构方法式。（取消）
+- [x] 研究可路由协议中支持自定义业务属性的可能性。（已实现）
+- [x] 支持文件上传等超大数据包的可路由协议。（暂时搁置，可参见`easy-tools`库的实现）
 - [ ] 升级 DCE-RUST 功能版本。
-- [ ] 完善各协议的 Golang 客户端实现。
+- [x] 完善各协议的 Golang 客户端实现。（取消）
 - [ ] 逐步替换 AI 生成的文档为人工编写文档。
+- [ ] Api扩展属性支持继承。
+
+*由于工作原因，加上不知此框架有任何实际应用者，作者将不计划新功能开发，包括上述全部TODO。后续若作者自身有需求，或者达到一定数量的用户需求，作者将继续开发，BUG修复将优先于新功能开发。若你认同此项目，想推动其发展，欢迎协作开发，欢迎对外推广。*
 
 ---
 
@@ -146,7 +149,7 @@ func bindServer() {
 		jc.Response(member)
 	})
 
-	flex.TcpRouter.SetEventHandler(func(c *flex.Tcp) error {
+	flex.TcpRouter.SetBefore("*", func(c *flex.Tcp) error {
 		shadow, _ := c.Rp.CtxData("$shadowSession")
 		rs := shadow.(*session.ShmSession[*Member])
 		cloned, err := rs.CloneForRequest(c.Rp.Sid())
@@ -171,7 +174,7 @@ func bindServer() {
 		}
 		c.Rp.SetSession(se)
 		return nil
-	}, nil)
+	})
 }
 
 func bindClient() {

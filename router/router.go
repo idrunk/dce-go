@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -34,8 +35,10 @@ type Router[Rp RoutableProtocol] struct {
 	apisMapping       map[string][]*RpApi[Rp]
 	apisTree          util.Tree[ApiBranch[Rp], string]
 	apiMatcher        func(rp Rp, apis []*Api) (index int)
-	beforeController  func(ctx *Context[Rp]) error
-	afterController   func(ctx *Context[Rp]) error
+	beforeMapping 	  map[string] func(ctx *Context[Rp]) error
+	afterMapping 	  map[string] func(ctx *Context[Rp]) error
+	pathBeforeMapping map[string]string
+	pathAfterMapping  map[string]string
 	mu                sync.Mutex
 }
 
@@ -45,6 +48,10 @@ func NewRouter[Rp RoutableProtocol]() *Router[Rp] {
 		suffixBoundary:    MarkSuffixBoundary,
 		idApiMapping:      make(map[string]*RpApi[Rp]),
 		apisMapping:       make(map[string][]*RpApi[Rp]),
+		beforeMapping:      make(map[string]func(ctx *Context[Rp]) error),
+		afterMapping:       make(map[string]func(ctx *Context[Rp]) error),
+		pathBeforeMapping:      make(map[string]string),
+		pathAfterMapping:       make(map[string]string),
 		apisTree:          util.NewTree(newApiBranch("", make([]*RpApi[Rp], 0))),
 	}
 }
@@ -55,10 +62,49 @@ func (r *Router[Rp]) SetSeparator(pps string, sb string) *Router[Rp] {
 	return r
 }
 
-func (r *Router[Rp]) SetEventHandler(before func(ctx *Context[Rp]) error, after func(ctx *Context[Rp]) error) *Router[Rp] {
-	r.beforeController = before
-	r.afterController = after
+// SetBefore sets the pre-controller middleware, which can be used for tasks such as authentication,
+// validation, etc. The path parameter works similarly to that in the Push method,
+// with the following differences: a trailing + indicates matching child APIs excluding the current one,
+// while a trailing * includes the current API as well.
+// Path omission is not supported—if the path was omitted in the Push configuration, it must be fully specified here.
+//
+//   SetBefore("member", func(ctx *Context[Rp]) error {}) // Intercept "/member"
+//   SetBefore("member*", func(ctx *Context[Rp]) error {}) // Intercept "/member" and its sub-APIs
+//   SetBefore("member+", func(ctx *Context[Rp]) error {}) // Intercept sub-APIs of "/member"
+//   SetBefore("member/{mid}+", func(ctx *Context[Rp]) error {}) // Intercept sub-APIs of "/member/{mid}"
+//
+// Returning an error can interrupt and clear the processing flow.
+func (r *Router[Rp]) SetBefore(path string, handler func(ctx *Context[Rp]) error) *Router[Rp] {
+	hookOverrideWarn(path, r.beforeMapping, true)
+	r.beforeMapping[path] = handler
 	return r
+}
+
+func (r *Router[Rp]) SetBeforePaths(paths []string, handler func(ctx *Context[Rp]) error) *Router[Rp] {
+	for _, path := range paths { r.SetBefore(path, handler) }
+	return r
+}
+
+func (r *Router[Rp]) SetAfter(path string, handler func(ctx *Context[Rp]) error) *Router[Rp] {
+	hookOverrideWarn(path, r.beforeMapping, false)
+	r.afterMapping[path] = handler
+	return r
+}
+
+func (r *Router[Rp]) SetAfterPaths(paths []string, handler func(ctx *Context[Rp]) error) *Router[Rp] {
+	for _, path := range paths { r.SetAfter(path, handler) }
+	return r
+}
+
+func hookOverrideWarn[T any](path string, mapping map[string]T, pre bool) {
+	if _, ok := mapping[path]; !ok {
+		return
+	}
+	hook := "preprocessor"
+	if !pre {
+		hook = "postprocesser"
+	}
+	slog.Warn(fmt.Sprintf(`Path "%s" already has a %s; reassigning it will overwrite the current one.`, path, hook))
 }
 
 func (r *Router[Rp]) SetApiMatcher(apiMatcher func(rp Rp, apis []*Api) (index int)) *Router[Rp] {
@@ -145,12 +191,8 @@ func (r *Router[Rp]) ready() {
 			return rp.MatchApi(apis)
 		}
 	}
-	if r.beforeController == nil {
-		r.beforeController = func(ctx *Context[Rp]) error { return nil }
-	}
-	if r.afterController == nil {
-		r.afterController = func(ctx *Context[Rp]) error { return nil }
-	}
+	r.mapMiddleware(r.beforeMapping, r.pathBeforeMapping, true)
+	r.mapMiddleware(r.afterMapping, r.pathAfterMapping, true)
 }
 
 func (r *Router[Rp]) omittedPath(path string) string {
@@ -191,19 +233,19 @@ func (r *Router[Rp]) buildTree() {
 	}).Collect()
 	// 2. init the apisTree
 	r.apisTree.Build(apiBranches, func(tree *util.Tree[ApiBranch[Rp], string], remains []ApiBranch[Rp]) {
-		var fills []util.Tuple2[string, ApiBranch[Rp]]
+		var fills []*util.Tuple2[string, ApiBranch[Rp]]
 		for _, remain := range remains {
 			paths := strings.Split(remain.Path, MarkPathPartSeparator)
 			for i := 0; i < len(paths)-1; i++ {
 				path := strings.Join(paths[:i+1], MarkPathPartSeparator)
-				if _, ok := tree.ChildByPath(paths[:i+1]); !ok && !util.MapSeqFrom[util.Tuple2[string, ApiBranch[Rp]], string](fills).Map(func(f util.Tuple2[string, ApiBranch[Rp]]) string {
+				if _, ok := tree.ChildByPath(paths[:i+1]); !ok && !util.MapSeqFrom[*util.Tuple2[string, ApiBranch[Rp]], string](fills).Map(func(f *util.Tuple2[string, ApiBranch[Rp]]) string {
 					return f.A
 				}).Contains(path, util.Equal) {
 					fills = append(fills, util.NewTuple2(path, newApiBranch(path, []*RpApi[Rp]{})))
 				}
 			}
 			// If the API already exists in `fills` and `.Apis` is empty, then need to replace with the valid API.
-			if index := slices.IndexFunc(fills, func(tuple util.Tuple2[string, ApiBranch[Rp]]) bool {
+			if index := slices.IndexFunc(fills, func(tuple *util.Tuple2[string, ApiBranch[Rp]]) bool {
 				return tuple.A == remain.Path && len(tuple.B.Apis) == 0
 			}); index > -1 {
 				fills[index] = util.NewTuple2(remain.Path, remain)
@@ -240,6 +282,37 @@ func (r *Router[Rp]) buildTree() {
 		}
 		return util.TreeTraverContinue
 	})
+}
+
+var middlewarePathSuffixes = []string{"+", "*"}
+
+func (r *Router[Rp]) mapMiddleware(handlerMapping map[string]func(ctx *Context[Rp]) error, pathMapping map[string]string, pre bool) {
+	apisPaths := slices.Collect(maps.Keys(r.apisMapping))
+	for k := range handlerMapping {
+		path := k
+		suffix := ""
+		matchChildren := len(k) > 0 && slices.Contains(middlewarePathSuffixes, k[len(k) - 1:])
+		if matchChildren {
+			suffix = k[len(k) - 1:]
+			path = k[:len(k)-1]
+		}
+		for i := len(apisPaths) - 1; i >= 0; i -- {
+			apiPath := apisPaths[i]
+			matched := false
+			if suffix != middlewarePathSuffixes[0] && path == apiPath {
+				matched = true
+			} else if matchChildren {
+				// If child matching is enabled and the path is empty, the middleware is treated as a global wildcard;
+				// otherwise, it applies to sub-paths only.
+				matched = path == "" || strings.Contains(apiPath, path + MarkPathPartSeparator)
+			}
+			if matched {
+				hookOverrideWarn(apiPath, pathMapping, pre)
+				pathMapping[apiPath] = k
+				apisPaths = slices.Delete(apisPaths, i, i + 1)
+			}
+		}
+	}
 }
 
 func (r *Router[Rp]) locate(path string, apiFinder func([]*RpApi[Rp]) (*RpApi[Rp], bool)) (*RpApi[Rp], map[string]Param, *Suffix, error) {
@@ -281,7 +354,7 @@ func (r *Router[Rp]) locate(path string, apiFinder func([]*RpApi[Rp]) (*RpApi[Rp
 
 func (r *Router[Rp]) matchVarPath(path string) (string, map[string]Param, *Suffix, bool) {
 	pathParts := strings.Split(path, r.pathPartSeparator)
-	loopItems := []util.Tuple2[*util.Tree[ApiBranch[Rp], string], int]{util.NewTuple2(&r.apisTree, 0)}
+	loopItems := []*util.Tuple2[*util.Tree[ApiBranch[Rp], string], int]{util.NewTuple2(&r.apisTree, 0)}
 	pathParams := map[string]Param{}
 	var targetApiBranch *util.Tree[ApiBranch[Rp], string]
 	var suffix *Suffix
@@ -421,11 +494,21 @@ func (r *Router[Rp]) Route(context *Context[Rp]) {
 
 func (r *Router[Rp]) routedHandle(api *RpApi[Rp], pathParams map[string]Param, suffix *Suffix, context *Context[Rp]) error {
 	context.SetRoutes(r, api, pathParams, suffix)
-	if err := r.beforeController(context); err != nil {
-		return err
+	if bk, ok := r.pathBeforeMapping[api.Path]; ok {
+		if before, ok := r.beforeMapping[bk]; ok {
+			if err := before(context); err != nil {
+				return err
+			}
+		}
 	}
 	api.Controller(context)
-	return r.afterController(context)
+	var err error = nil
+	if ak, ok := r.pathAfterMapping[api.Path]; ok {
+		if after, ok := r.afterMapping[ak]; ok {
+			err = after(context)
+		}
+	}
+	return err
 }
 
 func (r *Router[Rp]) idLocate(id string) (*RpApi[Rp], error) {

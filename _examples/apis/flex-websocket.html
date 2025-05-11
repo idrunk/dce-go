@@ -95,15 +95,24 @@
         }
     }
 
-    class FlexPackage {
-        static #flagId = 128
-        static #flagPath = 64
-        static #flagSid = 32
-        static #flagCode = 16
-        static #flagMsg = 8
-        static #flagBody = 4
-        static #flagNumPath = 2
+    class PackageField {
+        constructor(field, kind) {
+            this.field = field
+            this.kind = kind
+        }
+    }
 
+    const baseFields = [
+        new PackageField("id", "uint"),
+        new PackageField("path", "string"),
+        new PackageField("numPath", "uint"),
+        new PackageField("sid", "string"),
+        new PackageField("code", "int"),
+        new PackageField("message", "string"),
+        new PackageField("body", "bytes"),
+    ];
+
+    class FlexPackage {
         static #reqId = 0
 
         id
@@ -128,120 +137,107 @@
         }
 
         serialize() {
-            const buffer = [0]
-            const lenSeqInfo = []
-            const textBuffer = []
-            let seq
-            if ((this.path || "").length > 0) {
-                buffer[0] |= FlexPackage.#flagPath
-                textBuffer.push(seq = new TextEncoder().encode(this.path))
-                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            let flag = 0;
+            const totalFields = baseFields.length;
+            const numHeadVec = [];
+            const textBuffer = [];
+            const bodyBuffer = [];
+            for (const [i, fc] of baseFields.entries()) {
+                let nh;
+                let textSeq;
+                const prop = this[fc.field];
+                if (prop === undefined) {
+                    continue;
+                } else if (fc.kind === "int") {
+                    nh = FlexNum.intPackHead(prop);
+                } else if (fc.kind === "uint") {
+                    nh = FlexNum.uintPackHead(prop);
+                } else if (fc.kind === "string") {
+                    textSeq = new TextEncoder().encode(prop);
+                    nh = FlexNum.non0LenPackHead(textSeq.length);
+                } else if (fc.kind === "bytes") {
+                    textSeq = new TextEncoder().encode(prop);
+                    nh = FlexNum.non0LenPackHead(textSeq.length);
+                } else {
+                    continue;
+                }
+                flag |= 1 << i;
+                numHeadVec.push(nh);
+                if (fc.kind === "bytes") {
+                    textSeq && bodyBuffer.push(textSeq);
+                } else if (textSeq) {
+                    textBuffer.push(textSeq);
+                }
             }
-            if ((this.sid || "").length > 0) {
-                buffer[0] |= FlexPackage.#flagSid
-                textBuffer.push(seq = new TextEncoder().encode(this.sid))
-                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+
+            const flagSeq = FlexNum.uintSerialize(flag);
+            const flagLen = flagSeq.length;
+            const buffer = [...flagSeq];
+            buffer[buffer.length + flagLen - 1] = undefined;
+            for (const [i, nh] of numHeadVec.entries()) {
+                buffer[flagLen+i] = nh[0];
+                buffer.push(...FlexNum.packBody(nh));
             }
-            if ((this.message || "").length > 0) {
-                buffer[0] |= FlexPackage.#flagMsg
-                textBuffer.push(seq = new TextEncoder().encode(this.message))
-                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            for (const part of textBuffer) {
+                buffer.push(...part);
             }
-            if ((this.body || "").length > 0) {
-                buffer[0] |= FlexPackage.#flagBody
-                textBuffer.push(seq = new TextEncoder().encode(this.body))
-                lenSeqInfo.push(FlexNum.non0LenPackHead(seq.length))
+            for (const part of bodyBuffer) {
+                buffer.push(...part);
             }
-            if (this.id > 0) {
-                buffer[0] |= FlexPackage.#flagId
-                lenSeqInfo.push(FlexNum.non0LenPackHead(this.id))
-            }
-            if (this.code) {
-                buffer[0] |= FlexPackage.#flagCode
-                lenSeqInfo.push(FlexNum.intPackHead(this.code))
-            }
-            if (this.numPath > 0) {
-                buffer[0] |= FlexPackage.#flagNumPath
-                lenSeqInfo.push(FlexNum.non0LenPackHead(this.numPath))
-            }
-            buffer.push(...Array(lenSeqInfo.length).fill(0))
-            for (let i=0; i<lenSeqInfo.length; i++) {
-                buffer[1+i] = lenSeqInfo[i][0]
-                buffer.push(...FlexNum.packBody(lenSeqInfo[i][3], lenSeqInfo[i][2], lenSeqInfo[i][1]))
-            }
-            for (let i=0; i<textBuffer.length; i++) {
-                buffer.push(...textBuffer[i])
-            }
-            return Uint8Array.from(buffer)
+            return Uint8Array.from(buffer);
         }
 
         static deserialize(seq) {
-            const fp = new FlexPackage
-            const flag = seq.splice(0, 1)?.[0]
-            if (! flag) {
-                return fp
+            const fp = new FlexPackage;
+            const head = seq.splice(0, 1)?.[0];
+            if (!head) {
+                return fp;
             }
-            const onesCount = FlexNum.onesCount(flag)
-            const numHeadSeq = seq.splice(0, onesCount)
-            if (numHeadSeq.length < onesCount) {
-                return fp
+            const nh = FlexNum.parseHead(head, false);
+            let flag = nh[0];
+            if (nh[1] > 0) {
+                const flagBodySeq = seq.splice(0, nh[1]);
+                flagBodySeq.unshift(nh[3]);
+                flag = FlexNum.parse(flagBodySeq);
             }
-            const numInfoSeq = new Array(onesCount).fill(0)
-            for (let i=0; i<onesCount; i++) {
-                const tuple = FlexNum.parseHead(numHeadSeq[i], true)
-                const numBodySeq = tuple[1] > 0 ? seq.splice(0, tuple[1]) : []
-                if (numBodySeq.length < tuple[1]) {
-                    return fp
+
+            const onesCount = FlexNum.onesCount(flag);
+            const numHeadList = seq.splice(0, onesCount)
+            if (numHeadList.length < onesCount) {
+                return fp;
+            }
+            const numInfoList = new Array(onesCount).fill(0)
+            let nhi = 0;
+            let bitsLen = FlexNum.bitsLen(flag);
+            for (let i=0; i<bitsLen; i++) {
+                if (((1 << i) & flag) === 0) {
+                    continue;
                 }
-                numInfoSeq[i] = [tuple, numBodySeq]
+                const nh = FlexNum.parseHead(numHeadList[nhi], true);
+                const numBodySeq = seq.splice(0, nh[1]);
+                numInfoList[nhi] = [i, nh, numBodySeq];
+                nhi ++;
             }
-            if ((flag & this.#flagPath) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
-                const sq = seq.splice(0, len)
-                if (sq.length < len) {
-                    return fp
+
+            if (bitsLen > baseFields.length) {
+                return fp;
+            }
+            for (const ni of numInfoList) {
+                const fc = baseFields[ni[0]];
+                if (fc.kind === "string" || fc.kind === "bytes") {
+                    const len = FlexNum.non0LenParse([ni[1][3], ...ni[2]]);
+                    const sq = seq.splice(0, len);
+                    if (sq.length < len) {
+                        return fp;
+                    }
+                    fp[fc.field] = new TextDecoder().decode(Uint8Array.from(sq));
+                } else if (fc.kind === "int") {
+                    const val = FlexNum.intParse([ni[1][0], ...ni[2]], ni[1][2]);
+                    fp[fc.field] = val;
+                } else if (fc.kind === "uint") {
+                    const val = FlexNum.parse([ni[1][3], ...ni[2]]);
+                    fp[fc.field] = val;
                 }
-                fp.path = new TextDecoder().decode(Uint8Array.from(sq))
-            }
-            if ((flag & this.#flagSid) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
-                const sq = seq.splice(0, len)
-                if (sq.length < len) {
-                    return fp
-                }
-                fp.sid = new TextDecoder().decode(Uint8Array.from(sq))
-            }
-            if ((flag & this.#flagMsg) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
-                const sq = seq.splice(0, len)
-                if (sq.length < len) {
-                    return fp
-                }
-                fp.message = new TextDecoder().decode(Uint8Array.from(sq))
-            }
-            if ((flag & this.#flagBody) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                const len = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
-                const sq = seq.splice(0, len)
-                if (sq.length < len) {
-                    return fp
-                }
-                fp.body = new TextDecoder().decode(Uint8Array.from(sq))
-            }
-            if ((flag & this.#flagId) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                fp.id = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
-            }
-            if ((flag & this.#flagCode) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                fp.code = FlexNum.intParse([numInfo[0], ...numBodySeq], numInfo[2])
-            }
-            if ((flag & this.#flagNumPath) > 0) {
-                const [numInfo, numBodySeq] = numInfoSeq.shift()
-                fp.numPath = FlexNum.non0LenParse([numInfo[3], ...numBodySeq])
             }
             return fp
         }
@@ -249,22 +245,22 @@
 
     class FlexNum {
         static uintSerialize(unsigned) {
-            return this.#serialize(...this.#uintPackHead(unsigned))
+            return this.#serialize(...this.uintPackHead(unsigned));
         }
 
         static intSerialize(integer) {
-            return this.#serialize(...this.intPackHead(integer))
+            return this.#serialize(...this.intPackHead(integer));
         }
 
         static non0LenPackHead(unsigned) {
-            return this.#uintPackHead(unsigned - 1)
+            return this.uintPackHead(unsigned - 1);
         }
 
-        static #uintPackHead(unsigned) {
-            const usize = Math.abs(unsigned)
-            const bitsLen = this.bitsLen(usize)
-            const [head, bytesLen] = this.#packHead(usize, bitsLen)
-            return [head, bytesLen, bitsLen, usize]
+        static uintPackHead(unsigned) {
+            const usize = Math.abs(unsigned);
+            const bitsLen = this.bitsLen(usize);
+            const [head, bytesLen] = this.#packHead(usize, bitsLen);
+            return [head, bytesLen, bitsLen, usize];
         }
 
         static intPackHead(integer) {
@@ -317,7 +313,7 @@
 
         static uintDeserialize(seq) {
             [seq[0]] = this.parseHead(seq[0], false)
-            return this.#parse(seq)
+            return this.parse(seq)
         }
 
         static intDeserialize(seq) {
@@ -358,7 +354,7 @@
         }
 
         static intParse(seq, negative) {
-            const u64 = this.#parse(seq)
+            const u64 = this.parse(seq)
             if (negative) {
                 return -u64
             }
@@ -366,10 +362,10 @@
         }
 
         static non0LenParse(seq) {
-            return this.#parse(seq) + 1
+            return this.parse(seq) + 1
         }
 
-        static #parse(seq) {
+        static parse(seq) {
             let u64 = 0
             for (let i = 0; i < seq.length; i++) {
                 if (seq[i] > 0) {
